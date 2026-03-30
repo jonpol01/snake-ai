@@ -1,0 +1,12 @@
+services:
+  snake-ai:
+    build: .
+    ports:
+      - "3030:3030"
+    # GPU not available in Docker on Mac — will use CPU fallback
+    # On Linux with NVIDIA, add:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]

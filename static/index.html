@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snake AI — Rust + wgpu</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #ccc;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 20px;
+    gap: 10px;
+    min-height: 100vh;
+  }
+  h1 { color: #0f8; font-size: 20px; letter-spacing: -0.5px; }
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 900px;
+  }
+  .top-bar .tag { font-size: 8px; color: #555; letter-spacing: 2px; }
+  .top-bar .conn { font-size: 9px; margin-left: auto; }
+  #connection { color: #f55; }
+
+  .layout {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: nowrap;
+    max-width: 900px;
+  }
+
+  canvas { border: 1px solid #222; border-radius: 3px; display: block; }
+
+  .panel {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 10px;
+    min-width: 170px;
+  }
+  .label { font-size: 8px; color: #555; letter-spacing: 1px; margin-bottom: 5px; }
+  .stat { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px; }
+  .stat span:last-child { color: #0f8; font-weight: bold; }
+  hr { border: none; border-top: 1px solid #222; margin: 6px 0; }
+  label { font-size: 8px; color: #555; display: block; margin-bottom: 2px; }
+  input[type=range] { width: 100%; accent-color: #0f8; }
+  .speed-val { font-size: 10px; text-align: center; color: #0f8; }
+  button {
+    width: 100%;
+    background: transparent;
+    border: 1px solid #0f8;
+    color: #0f8;
+    padding: 5px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 10px;
+    font-weight: bold;
+    margin-top: 3px;
+  }
+  button:hover { background: rgba(0,255,136,0.08); }
+  button.pause { border-color: #f55; color: #f55; }
+  button.pause:hover { background: rgba(255,85,85,0.08); }
+  .status { font-size: 9px; color: #333; text-align: center; }
+
+  /* Log panel */
+  .log-container {
+    width: 100%;
+    max-width: 900px;
+  }
+  .log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .log-header button {
+    width: auto;
+    padding: 2px 8px;
+    font-size: 8px;
+    margin: 0;
+    border-color: #333;
+    color: #555;
+  }
+  .log-header button:hover { color: #0f8; border-color: #0f8; }
+  #log-panel {
+    background: #0a0a0a;
+    border: 1px solid #1f2937;
+    border-radius: 4px;
+    padding: 6px 8px;
+    height: 160px;
+    overflow-y: auto;
+    font-size: 9px;
+    line-height: 1.5;
+  }
+  .log-entry { white-space: nowrap; }
+  .log-ts { color: #555; }
+  .log-info { color: #4ade80; }
+  .log-phase { color: #a78bfa; }
+  .log-error { color: #ef4444; }
+  .log-done { color: #22c55e; }
+  .log-stat { color: #38bdf8; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>SNAKE AI</h1>
+  <span class="tag">RUST + WGPU · NEURAL NETWORK × GENETIC ALGORITHM</span>
+  <span class="conn">Status: <span id="connection">disconnected</span></span>
+</div>
+
+<div class="layout">
+  <!-- NN -->
+  <div>
+    <div class="label">NEURAL NETWORK</div>
+    <canvas id="nn" width="260" height="340"></canvas>
+  </div>
+
+  <!-- Game -->
+  <div>
+    <div style="display:flex;justify-content:space-between" class="label">
+      <span>GAME</span><span style="color:#0f8">Score: <span id="score">0</span></span>
+    </div>
+    <canvas id="game" width="360" height="360"></canvas>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel">
+    <div class="stat"><span>Generation</span><span id="gen">—</span></div>
+    <div class="stat"><span>Best Score</span><span id="best">—</span></div>
+    <div class="stat"><span>Alive</span><span id="alive">—</span></div>
+    <div class="stat"><span>Compute</span><span id="gpu">—</span></div>
+    <hr>
+    <label>SPEED (steps/frame)</label>
+    <input type="range" id="speed" min="1" max="200" value="10">
+    <div class="speed-val" id="speed-val">10</div>
+    <hr>
+    <button id="btn-start" onclick="doStart()">START</button>
+    <button id="btn-pause" onclick="doPause()" style="display:none" class="pause">PAUSE</button>
+    <button id="btn-resume" onclick="doResume()" style="display:none">RESUME</button>
+    <hr>
+    <div class="label" style="margin-top:3px">BEST SCORE / GEN</div>
+    <canvas id="graph" width="168" height="70"></canvas>
+  </div>
+</div>
+
+<!-- Log Panel -->
+<div class="log-container">
+  <div class="log-header">
+    <div class="label" style="margin:0">LOG</div>
+    <button onclick="clearLog()">CLEAR</button>
+  </div>
+  <div id="log-panel">
+    <div class="log-entry"><span class="log-ts">[--:--:--]</span> <span class="log-info">Ready. Click START to begin evolution.</span></div>
+  </div>
+</div>
+
+<script>
+const SIZE = 20, CELL = 18;
+const gameC = document.getElementById('game'), gx = gameC.getContext('2d');
+const nnC = document.getElementById('nn'), nx = nnC.getContext('2d');
+const grC = document.getElementById('graph'), rx = grC.getContext('2d');
+const logPanel = document.getElementById('log-panel');
+
+let ws, scores = [], running = false;
+const MAX_LOG = 500;
+
+function addLog(timestamp, message, kind) {
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-ts">[${timestamp}]</span> <span class="log-${kind}">${escHtml(message)}</span>`;
+  logPanel.appendChild(el);
+  while (logPanel.children.length > MAX_LOG) logPanel.removeChild(logPanel.firstChild);
+  logPanel.scrollTop = logPanel.scrollHeight;
+}
+function clearLog() { logPanel.innerHTML = ''; }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => {
+    document.getElementById('connection').textContent = 'connected';
+    document.getElementById('connection').style.color = '#0f8';
+    fetch('/logs').then(r=>r.json()).then(logs => {
+      for (const l of logs) addLog(l.timestamp, l.message, l.kind);
+    }).catch(()=>{});
+  };
+  ws.onclose = () => {
+    document.getElementById('connection').textContent = 'disconnected';
+    document.getElementById('connection').style.color = '#f55';
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state') drawState(msg);
+    else if (msg.type === 'graph') { scores = msg.scores; drawGraph(); }
+    else if (msg.type === 'log') addLog(msg.timestamp, msg.message, msg.kind);
+  };
+}
+connect();
+
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+function doStart() {
+  send({type:'start'});
+  running = true;
+  document.getElementById('btn-start').style.display = 'none';
+  document.getElementById('btn-resume').style.display = 'none';
+  document.getElementById('btn-pause').style.display = '';
+}
+function doPause() {
+  send({type:'pause'});
+  running = false;
+  document.getElementById('btn-pause').style.display = 'none';
+  document.getElementById('btn-resume').style.display = '';
+}
+function doResume() {
+  send({type:'resume'});
+  running = true;
+  document.getElementById('btn-resume').style.display = 'none';
+  document.getElementById('btn-pause').style.display = '';
+}
+
+const speedEl = document.getElementById('speed');
+speedEl.addEventListener('input', () => {
+  document.getElementById('speed-val').textContent = speedEl.value;
+  send({type:'speed', value: parseInt(speedEl.value)});
+});
+
+function drawState(s) {
+  document.getElementById('gen').textContent = s.gen;
+  document.getElementById('best').textContent = s.best_score;
+  document.getElementById('alive').textContent = s.alive + '/' + s.total;
+  document.getElementById('gpu').textContent = s.gpu_ms.toFixed(2) + 'ms';
+  document.getElementById('score').textContent = s.score;
+
+  gx.fillStyle = '#0a0a0a'; gx.fillRect(0,0,360,360);
+  gx.strokeStyle = '#151515'; gx.lineWidth = 0.5;
+  for (let i = 0; i <= SIZE; i++) {
+    gx.beginPath(); gx.moveTo(i*CELL,0); gx.lineTo(i*CELL,SIZE*CELL); gx.stroke();
+    gx.beginPath(); gx.moveTo(0,i*CELL); gx.lineTo(SIZE*CELL,i*CELL); gx.stroke();
+  }
+
+  gx.shadowColor = '#f66'; gx.shadowBlur = 8;
+  gx.fillStyle = '#f33';
+  gx.beginPath();
+  gx.arc(s.food[0]*CELL+CELL/2, s.food[1]*CELL+CELL/2, CELL/2.5, 0, Math.PI*2);
+  gx.fill(); gx.shadowBlur = 0;
+
+  const body = s.snake_body;
+  for (let i = body.length-1; i >= 0; i--) {
+    const b = body[i];
+    if (i === 0) { gx.shadowColor='#0f8'; gx.shadowBlur=5; gx.fillStyle='#0f8'; }
+    else { gx.shadowBlur=0; const t=1-i/body.length; gx.fillStyle=`rgba(0,140,80,${0.3+t*0.7})`; }
+    const p = i===0?1:2;
+    gx.fillRect(b.x*CELL+p, b.y*CELL+p, CELL-p*2, CELL-p*2);
+  }
+  gx.shadowBlur = 0;
+
+  drawNN(s.nn_weights, s.vision, s.decision);
+}
+
+function drawNN(brain, vision, decision) {
+  const W=nnC.width, H=nnC.height;
+  nx.fillStyle='#0a0a0a'; nx.fillRect(0,0,W,H);
+  const layers=[24,16,16,4], padX=22, R=4.5, sp=2.5;
+  const lx=[]; for(let i=0;i<4;i++) lx.push(padX+(W-padX*2)*i/3);
+  const pos=[];
+  for(let l=0;l<4;l++){
+    const n=layers[l], th=n*(R*2+sp)-sp, sy=(H-th)/2, p=[];
+    for(let i=0;i<n;i++) p.push({x:lx[l],y:sy+i*(R*2+sp)+R});
+    pos.push(p);
+  }
+
+  nx.lineWidth=0.3;
+  for(let l=0;l<brain.weights.length;l++){
+    const w=brain.weights[l], rows=w.rows, cols=w.cols;
+    for(let i=0;i<rows;i++){
+      for(let j=0;j<cols-1;j++){
+        if(j>=pos[l].length)continue;
+        const v=w.data[i*cols+j];
+        nx.strokeStyle=v<0?'#f44':'#48f';
+        nx.globalAlpha=Math.min(Math.abs(v)*0.3,0.4);
+        nx.beginPath();
+        nx.moveTo(pos[l][j].x+R,pos[l][j].y);
+        nx.lineTo(pos[l+1][i].x-R,pos[l+1][i].y);
+        nx.stroke();
+      }
+    }
+  }
+  nx.globalAlpha=1;
+
+  for(let i=0;i<24;i++){
+    const p=pos[0][i];
+    nx.fillStyle=vision[i]?'#0f8':'#1a1a1a'; nx.strokeStyle='#333'; nx.lineWidth=0.6;
+    nx.beginPath();nx.arc(p.x,p.y,R,0,Math.PI*2);nx.fill();nx.stroke();
+  }
+  for(let l=1;l<=2;l++) for(let i=0;i<16;i++){
+    const p=pos[l][i];
+    nx.fillStyle='#1a1a1a'; nx.strokeStyle='#333'; nx.lineWidth=0.6;
+    nx.beginPath();nx.arc(p.x,p.y,R,0,Math.PI*2);nx.fill();nx.stroke();
+  }
+  const labels=['U','D','L','R'];
+  let mx=0; for(let i=1;i<4;i++) if(decision[i]>decision[mx]) mx=i;
+  for(let i=0;i<4;i++){
+    const p=pos[3][i], act=i===mx;
+    nx.fillStyle=act?'#0f8':'#1a1a1a'; nx.strokeStyle='#333'; nx.lineWidth=0.6;
+    nx.beginPath();nx.arc(p.x,p.y,R*1.3,0,Math.PI*2);nx.fill();nx.stroke();
+    nx.fillStyle=act?'#000':'#555'; nx.font='bold 7px monospace';
+    nx.textAlign='center'; nx.textBaseline='middle';
+    nx.fillText(labels[i],p.x,p.y);
+  }
+}
+
+function drawGraph() {
+  const w=grC.width, h=grC.height;
+  rx.fillStyle='#111'; rx.fillRect(0,0,w,h);
+  if(!scores.length)return;
+  const mx=Math.max(...scores,1), pad={l:24,r:4,t:3,b:8}, gw=w-pad.l-pad.r, gh=h-pad.t-pad.b;
+  rx.fillStyle='#444'; rx.font='7px monospace'; rx.textAlign='right';
+  for(let i=0;i<=2;i++){
+    const v=Math.round(mx*i/2), y=pad.t+gh-gh*i/2;
+    rx.fillText(v,pad.l-2,y+3);
+  }
+  if(scores.length>1){
+    rx.beginPath();
+    for(let i=0;i<scores.length;i++){
+      const x=pad.l+gw*i/(scores.length-1), y=pad.t+gh-gh*scores[i]/mx;
+      i===0?rx.moveTo(x,y):rx.lineTo(x,y);
+    }
+    rx.strokeStyle='#0f8'; rx.lineWidth=1.2; rx.stroke();
+  }
+}
+
+// Draw empty state
+gx.fillStyle='#0a0a0a'; gx.fillRect(0,0,360,360);
+nx.fillStyle='#0a0a0a'; nx.fillRect(0,0,nnC.width,nnC.height);
+</script>
+</body>
+</html>
