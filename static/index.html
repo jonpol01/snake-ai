@@ -237,6 +237,8 @@ speedEl.addEventListener('input', () => {
   send({type:'speed', value: parseInt(speedEl.value)});
 });
 
+let deathAnim = null;
+
 function drawState(s) {
   document.getElementById('gen').textContent = s.gen;
   document.getElementById('best').textContent = s.best_score;
@@ -258,14 +260,46 @@ function drawState(s) {
   gx.fill(); gx.shadowBlur = 0;
 
   const body = s.snake_body;
+  const isDead = s.dead;
+
   for (let i = body.length-1; i >= 0; i--) {
     const b = body[i];
-    if (i === 0) { gx.shadowColor='#0f8'; gx.shadowBlur=5; gx.fillStyle='#0f8'; }
-    else { gx.shadowBlur=0; const t=1-i/body.length; gx.fillStyle=`rgba(0,140,80,${0.3+t*0.7})`; }
+    if (isDead) {
+      // Dead snake: red tint
+      gx.shadowBlur = 0;
+      if (i === 0) { gx.shadowColor='#f44'; gx.shadowBlur=6; gx.fillStyle='#f44'; }
+      else { const t=1-i/body.length; gx.fillStyle=`rgba(160,40,40,${0.3+t*0.7})`; }
+    } else {
+      if (i === 0) { gx.shadowColor='#0f8'; gx.shadowBlur=5; gx.fillStyle='#0f8'; }
+      else { gx.shadowBlur=0; const t=1-i/body.length; gx.fillStyle=`rgba(0,140,80,${0.3+t*0.7})`; }
+    }
     const p = i===0?1:2;
     gx.fillRect(b.x*CELL+p, b.y*CELL+p, CELL-p*2, CELL-p*2);
   }
   gx.shadowBlur = 0;
+
+  // Death overlay effect
+  if (isDead) {
+    // Red vignette flash
+    const grad = gx.createRadialGradient(180,180,60, 180,180,260);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(200,30,30,0.35)');
+    gx.fillStyle = grad;
+    gx.fillRect(0,0,360,360);
+
+    // "GEN OVER" text
+    gx.save();
+    gx.shadowColor = '#f44'; gx.shadowBlur = 12;
+    gx.fillStyle = '#f55';
+    gx.font = 'bold 18px monospace';
+    gx.textAlign = 'center'; gx.textBaseline = 'middle';
+    gx.fillText('GEN OVER', 180, 170);
+    gx.shadowBlur = 0;
+    gx.fillStyle = '#888';
+    gx.font = '11px monospace';
+    gx.fillText(`Score: ${s.score}`, 180, 195);
+    gx.restore();
+  }
 
   drawNN(s.nn_weights, s.vision, s.decision);
 }

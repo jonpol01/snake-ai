@@ -11,19 +11,9 @@ The Rust backend runs the simulation and serves a browser-based dashboard over W
 
 ## Architecture
 
-```
- egui Window (native)          Browser (localhost:3030)
- - Controls + logs              - Game visualization
- - Stats display                - Neural network viz
-        |                       - Fitness graph + logs
-        |   SharedState (Arc)          |
-        +------+-------+------+-------+
-               |               |
-         axum HTTP + WS     Simulation Loop
-               |               |
-            wgpu Metal      2000 snakes
-          compute shader    per generation
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="System Architecture" width="900">
+</p>
 
 ## Features
 

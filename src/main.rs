@@ -209,6 +209,32 @@ async fn sim_loop(
 
                 for _ in 0..speed {
                     if pop.done() {
+                        // Send death frame: show the best snake from this gen
+                        let best_dead = pop.snakes.iter()
+                            .max_by(|a, b| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
+                        if let Some(best) = best_dead {
+                            let msg = ServerMsg::State {
+                                gen: pop.gen,
+                                best_score: pop.best_scores.iter().copied().max().unwrap_or(0),
+                                alive: 0,
+                                total: population::POP_SIZE,
+                                gpu_ms: pop.last_compute_ms,
+                                snake_body: best.body.clone(),
+                                food: (best.food_x, best.food_y),
+                                score: best.score,
+                                vision: best.vision.to_vec(),
+                                decision: best.decision.to_vec(),
+                                nn_weights: best.brain.clone(),
+                                dead: true,
+                            };
+                            if let Ok(json) = serde_json::to_string(&msg) {
+                                let _ = state_tx.send(json);
+                            }
+                        }
+
+                        // Brief pause so the death frame is visible
+                        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
                         pop.calculate_fitness();
 
                         let gen_best = pop.snakes.iter().map(|s| s.score).max().unwrap_or(0);
@@ -290,6 +316,7 @@ async fn sim_loop(
                         vision: best.vision.to_vec(),
                         decision: best.decision.to_vec(),
                         nn_weights: best.brain.clone(),
+                        dead: false,
                     };
                     if let Ok(json) = serde_json::to_string(&msg) {
                         let _ = state_tx.send(json);

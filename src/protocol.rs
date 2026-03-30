@@ -21,6 +21,8 @@ pub enum ServerMsg {
         vision: Vec<f32>,
         decision: Vec<f32>,
         nn_weights: NeuralNet,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        dead: bool,
     },
     #[serde(rename = "graph")]
     Graph { scores: Vec<u32> },
