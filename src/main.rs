@@ -5,24 +5,25 @@ mod population;
 mod protocol;
 mod shared;
 mod snake;
+mod stage;
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::WebSocketUpgrade;
-use axum::response::IntoResponse;
+use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio::sync::{broadcast, mpsc};
-use tower_http::services::ServeDir;
 
 use gpu::GpuCompute;
 use population::Population;
 use protocol::{ClientMsg, ServerMsg};
 use shared::{LogKind, SharedState};
+use stage::StageKind;
 
 fn main() {
     let shared = Arc::new(SharedState::new());
@@ -102,7 +103,17 @@ async fn run_backend(
                 }
             }),
         )
-        .fallback_service(ServeDir::new("static"));
+        .route(
+            "/info",
+            get({
+                let shared = shared.clone();
+                move || {
+                    let shared = shared.clone();
+                    async move { get_info(shared).await }
+                }
+            }),
+        )
+        .route("/", get(serve_index));
 
     let addr = "0.0.0.0:3030";
     shared.push_log(format!("Server listening on http://{}", addr), LogKind::Info);
@@ -130,6 +141,17 @@ async fn get_logs(shared: Arc<SharedState>) -> axum::Json<serde_json::Value> {
         })
         .collect();
     axum::Json(serde_json::json!(entries))
+}
+
+async fn get_info(shared: Arc<SharedState>) -> axum::Json<serde_json::Value> {
+    let backend = shared.gpu_backend.lock().unwrap().clone();
+    axum::Json(serde_json::json!({
+        "backend": backend,
+    }))
+}
+
+async fn serve_index() -> Html<&'static str> {
+    Html(include_str!("../static/index.html"))
 }
 
 async fn ws_handler(
@@ -176,6 +198,7 @@ async fn sim_loop(
     let mut population: Option<Population> = None;
     let mut running = false;
     let mut speed: u32 = 10;
+    let mut stage_kind = StageKind::Classic;
     let mut frame_interval = tokio::time::interval(std::time::Duration::from_millis(33));
 
     // Helper: push log to both SharedState and WebSocket
@@ -226,6 +249,7 @@ async fn sim_loop(
                                 decision: best.decision.to_vec(),
                                 nn_weights: best.brain.clone(),
                                 dead: true,
+                                obstacles: pop.stage.obstacle_list(),
                             };
                             if let Ok(json) = serde_json::to_string(&msg) {
                                 let _ = state_tx.send(json);
@@ -259,7 +283,8 @@ async fn sim_loop(
                         pop.natural_selection();
 
                         // Auto-save checkpoint every 10 generations
-                        if pop.gen % 10 == 0 {
+                        // Only save if we have meaningful progress (don't overwrite good brains with fresh randoms)
+                        if pop.gen % 10 == 0 && pop.gen >= 10 {
                             pop.save_checkpoint();
                             log(&shared, &state_tx,
                                 format!("Checkpoint saved (gen {})", pop.gen),
@@ -317,6 +342,7 @@ async fn sim_loop(
                         decision: best.decision.to_vec(),
                         nn_weights: best.brain.clone(),
                         dead: false,
+                        obstacles: pop.stage.obstacle_list(),
                     };
                     if let Ok(json) = serde_json::to_string(&msg) {
                         let _ = state_tx.send(json);
@@ -327,7 +353,7 @@ async fn sim_loop(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     ClientMsg::Start => {
-                        if let Some(restored) = Population::from_checkpoint() {
+                        if let Some(restored) = Population::from_checkpoint(stage_kind) {
                             let gen = restored.gen;
                             let best = restored.best_scores.iter().copied().max().unwrap_or(0);
                             // Send graph data immediately
@@ -340,7 +366,7 @@ async fn sim_loop(
                                 format!("Resumed from checkpoint — gen {}, best score: {}", gen, best),
                                 LogKind::Done);
                         } else {
-                            population = Some(Population::new());
+                            population = Some(Population::new(stage_kind));
                             log(&shared, &state_tx,"Evolution started — population: 2000".into(), LogKind::Phase);
                         }
                         running = true;
@@ -359,6 +385,43 @@ async fn sim_loop(
                     ClientMsg::Speed { value } => {
                         speed = value.max(1).min(500);
                         if let Ok(mut s) = shared.speed.lock() { *s = speed; }
+                    }
+                    ClientMsg::Stage { value } => {
+                        stage_kind = match value.as_str() {
+                            "warehouse" => StageKind::Warehouse,
+                            "mixed" => StageKind::Mixed,
+                            _ => StageKind::Classic,
+                        };
+                        let label = match stage_kind {
+                            StageKind::Classic => "Classic",
+                            StageKind::Warehouse => "Warehouse",
+                            StageKind::Mixed => "Mixed",
+                        };
+                        // Switch stage but KEEP trained brains
+                        if let Some(ref mut pop) = population {
+                            pop.stage = stage::Stage::new(stage_kind);
+                            // Respawn snakes with same brains on new stage
+                            for snake in &mut pop.snakes {
+                                let brain = snake.brain.clone();
+                                *snake = crate::snake::Snake::new_with_stage(&pop.stage);
+                                snake.brain = brain;
+                            }
+                        } else {
+                            population = Some(Population::new(stage_kind));
+                        }
+                        running = true;
+                        if let Ok(mut r) = shared.running.lock() { *r = true; }
+                        log(&shared, &state_tx,
+                            format!("Stage changed to {} — brains preserved", label),
+                            LogKind::Phase);
+                    }
+                    ClientMsg::Regenerate => {
+                        if let Some(ref mut pop) = population {
+                            pop.regenerate_stage();
+                            log(&shared, &state_tx,
+                                "Stage layout regenerated".into(),
+                                LogKind::Phase);
+                        }
                     }
                 }
             }
