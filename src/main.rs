@@ -233,9 +233,9 @@ async fn sim_loop(
                 for _ in 0..speed {
                     if pop.done() {
                         // Send death frame: show the best snake from this gen
-                        let best_dead = pop.snakes.iter()
-                            .max_by(|a, b| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
-                        if let Some(best) = best_dead {
+                        let best_dead = pop.snakes.iter().enumerate()
+                            .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
+                        if let Some((idx, best)) = best_dead {
                             let msg = ServerMsg::State {
                                 gen: pop.gen,
                                 best_score: pop.best_scores.iter().copied().max().unwrap_or(0),
@@ -248,6 +248,7 @@ async fn sim_loop(
                                 vision: best.vision.to_vec(),
                                 decision: best.decision.to_vec(),
                                 nn_weights: best.brain.clone(),
+                                snake_id: idx,
                                 dead: true,
                                 obstacles: pop.stage.obstacle_list(),
                             };
@@ -325,10 +326,11 @@ async fn sim_loop(
                 let best = pop
                     .snakes
                     .iter()
-                    .filter(|s| !s.dead)
-                    .max_by(|a, b| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
+                    .enumerate()
+                    .filter(|(_, s)| !s.dead)
+                    .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
 
-                if let Some(best) = best {
+                if let Some((idx, best)) = best {
                     let msg = ServerMsg::State {
                         gen: pop.gen,
                         best_score: pop.best_scores.iter().copied().max().unwrap_or(0),
@@ -341,6 +343,7 @@ async fn sim_loop(
                         vision: best.vision.to_vec(),
                         decision: best.decision.to_vec(),
                         nn_weights: best.brain.clone(),
+                        snake_id: idx,
                         dead: false,
                         obstacles: pop.stage.obstacle_list(),
                     };

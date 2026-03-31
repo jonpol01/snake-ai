@@ -185,7 +185,7 @@
   <!-- Game -->
   <div>
     <div style="display:flex;justify-content:space-between" class="label">
-      <span>GAME</span><span style="color:#0f8">Score: <span id="score">0</span></span>
+      <span>GAME</span><span style="color:#0f8">Score: <span id="score">0</span> <span style="color:#48f" id="snake-id">#—</span></span>
     </div>
     <canvas id="game" width="360" height="360"></canvas>
   </div>
@@ -349,6 +349,7 @@ document.getElementById('stage-select').addEventListener('change', (e) => {
 });
 
 let deathAnim = null;
+let lastSnakeId = -1;
 
 function drawState(s) {
   document.getElementById('gen').textContent = s.gen;
@@ -357,7 +358,19 @@ function drawState(s) {
   document.getElementById('gpu').textContent = s.gpu_ms.toFixed(2) + 'ms';
   document.getElementById('score').textContent = s.score;
 
+  // Snake/AMR ID tracking
+  const idEl = document.getElementById('snake-id');
   const isWarehouse = s.obstacles && s.obstacles.length > 0;
+  const prefix = isWarehouse ? 'AMR' : 'Snake';
+  if (s.snake_id !== lastSnakeId && lastSnakeId !== -1 && !s.dead) {
+    idEl.textContent = `${prefix} #${s.snake_id}`;
+    idEl.style.color = '#f80';
+    setTimeout(() => { idEl.style.color = '#48f'; }, 500);
+  } else {
+    idEl.textContent = `${prefix} #${s.snake_id}`;
+  }
+  lastSnakeId = s.snake_id;
+
   const isDead = s.dead;
 
   // ── Background ──

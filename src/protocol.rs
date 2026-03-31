@@ -21,6 +21,7 @@ pub enum ServerMsg {
         vision: Vec<f32>,
         decision: Vec<f32>,
         nn_weights: NeuralNet,
+        snake_id: usize,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         dead: bool,
         #[serde(skip_serializing_if = "Vec::is_empty")]

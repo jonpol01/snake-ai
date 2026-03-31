@@ -3,6 +3,7 @@ FROM rust:1.85-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
+COPY static/ static/
 
 RUN cargo build --release
 
@@ -15,7 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY --from=builder /app/target/release/snake-ai .
-COPY static/ static/
 
-EXPOSE 8080
+EXPOSE 3030
 CMD ["./snake-ai"]
