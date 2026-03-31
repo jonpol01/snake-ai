@@ -102,6 +102,16 @@ async fn run_backend(
                 }
             }),
         )
+        .route(
+            "/info",
+            get({
+                let shared = shared.clone();
+                move || {
+                    let shared = shared.clone();
+                    async move { get_info(shared).await }
+                }
+            }),
+        )
         .fallback_service(ServeDir::new("static"));
 
     let addr = "0.0.0.0:3030";
@@ -130,6 +140,13 @@ async fn get_logs(shared: Arc<SharedState>) -> axum::Json<serde_json::Value> {
         })
         .collect();
     axum::Json(serde_json::json!(entries))
+}
+
+async fn get_info(shared: Arc<SharedState>) -> axum::Json<serde_json::Value> {
+    let backend = shared.gpu_backend.lock().unwrap().clone();
+    axum::Json(serde_json::json!({
+        "backend": backend,
+    }))
 }
 
 async fn ws_handler(

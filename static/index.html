@@ -108,6 +108,49 @@
   .log-error { color: #ef4444; }
   .log-done { color: #22c55e; }
   .log-stat { color: #38bdf8; }
+
+  /* Hardware monitor */
+  .hw-monitor {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .hw-card {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 8px 12px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hw-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .hw-icon.gpu { background: rgba(72,136,255,0.12); border: 1px solid rgba(72,136,255,0.3); }
+  .hw-icon.cpu { background: rgba(255,136,0,0.12); border: 1px solid rgba(255,136,0,0.3); }
+  .hw-icon.perf { background: rgba(0,255,136,0.12); border: 1px solid rgba(0,255,136,0.3); }
+  .hw-details { flex: 1; min-width: 0; }
+  .hw-title { font-size: 8px; color: #555; letter-spacing: 1px; margin-bottom: 2px; }
+  .hw-value { font-size: 11px; color: #ccc; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hw-sub { font-size: 8px; color: #444; margin-top: 1px; }
+  .hw-spark { display: flex; align-items: flex-end; gap: 1px; height: 24px; flex-shrink: 0; }
+  .hw-spark-bar {
+    width: 3px;
+    border-radius: 1px;
+    transition: height 0.15s ease, background 0.15s ease;
+    min-height: 1px;
+  }
 </style>
 </head>
 <body>
@@ -150,6 +193,43 @@
     <hr>
     <div class="label" style="margin-top:3px">BEST SCORE / GEN</div>
     <canvas id="graph" width="168" height="70"></canvas>
+  </div>
+</div>
+
+<!-- Hardware Monitor -->
+<div class="hw-monitor">
+  <div class="hw-card">
+    <div class="hw-icon gpu">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="1.5" stroke="#48f" stroke-width="1.2"/><rect x="5" y="6.5" width="2.5" height="3" rx="0.5" fill="#48f" opacity="0.5"/><rect x="8.5" y="6.5" width="2.5" height="3" rx="0.5" fill="#48f" opacity="0.5"/><line x1="4" y1="2" x2="4" y2="4" stroke="#48f" stroke-width="1"/><line x1="7" y1="2" x2="7" y2="4" stroke="#48f" stroke-width="1"/><line x1="10" y1="2" x2="10" y2="4" stroke="#48f" stroke-width="1"/><line x1="4" y1="12" x2="4" y2="14" stroke="#48f" stroke-width="1"/><line x1="7" y1="12" x2="7" y2="14" stroke="#48f" stroke-width="1"/><line x1="10" y1="12" x2="10" y2="14" stroke="#48f" stroke-width="1"/></svg>
+    </div>
+    <div class="hw-details">
+      <div class="hw-title">COMPUTE BACKEND</div>
+      <div class="hw-value" id="hw-backend">—</div>
+      <div class="hw-sub" id="hw-backend-type">Detecting...</div>
+    </div>
+  </div>
+
+  <div class="hw-card">
+    <div class="hw-icon perf">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#0f8" stroke-width="1.2"/><line x1="8" y1="8" x2="11" y2="5" stroke="#0f8" stroke-width="1.2" stroke-linecap="round"/><circle cx="8" cy="8" r="1" fill="#0f8"/></svg>
+    </div>
+    <div class="hw-details">
+      <div class="hw-title">INFERENCE TIME</div>
+      <div class="hw-value"><span id="hw-latency">—</span> <span style="font-size:8px;color:#555;font-weight:normal">ms / 2000 snakes</span></div>
+      <div class="hw-sub" id="hw-latency-status">Waiting for data...</div>
+    </div>
+    <div class="hw-spark" id="hw-spark"></div>
+  </div>
+
+  <div class="hw-card">
+    <div class="hw-icon cpu">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="2" stroke="#f80" stroke-width="1.2"/><rect x="5.5" y="5.5" width="5" height="5" rx="0.8" fill="#f80" opacity="0.4"/><line x1="6" y1="1" x2="6" y2="3" stroke="#f80" stroke-width="1"/><line x1="10" y1="1" x2="10" y2="3" stroke="#f80" stroke-width="1"/><line x1="6" y1="13" x2="6" y2="15" stroke="#f80" stroke-width="1"/><line x1="10" y1="13" x2="10" y2="15" stroke="#f80" stroke-width="1"/><line x1="1" y1="6" x2="3" y2="6" stroke="#f80" stroke-width="1"/><line x1="1" y1="10" x2="3" y2="10" stroke="#f80" stroke-width="1"/><line x1="13" y1="6" x2="15" y2="6" stroke="#f80" stroke-width="1"/><line x1="13" y1="10" x2="15" y2="10" stroke="#f80" stroke-width="1"/></svg>
+    </div>
+    <div class="hw-details">
+      <div class="hw-title">THROUGHPUT</div>
+      <div class="hw-value"><span id="hw-throughput">—</span> <span style="font-size:8px;color:#555;font-weight:normal">fwd passes/sec</span></div>
+      <div class="hw-sub" id="hw-throughput-status">Waiting for data...</div>
+    </div>
   </div>
 </div>
 
@@ -302,6 +382,7 @@ function drawState(s) {
   }
 
   drawNN(s.nn_weights, s.vision, s.decision);
+  updateHardwareMonitor(s.gpu_ms);
 }
 
 function drawNN(brain, vision, decision) {
@@ -375,6 +456,83 @@ function drawGraph() {
     rx.strokeStyle='#0f8'; rx.lineWidth=1.2; rx.stroke();
   }
 }
+
+// Hardware monitor state
+const sparkHistory = [];
+const SPARK_MAX = 30;
+const sparkContainer = document.getElementById('hw-spark');
+
+// Init spark bars
+for (let i = 0; i < SPARK_MAX; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'hw-spark-bar';
+  bar.style.height = '1px';
+  bar.style.background = '#222';
+  sparkContainer.appendChild(bar);
+}
+
+function updateHardwareMonitor(gpuMs) {
+  // Latency
+  const latEl = document.getElementById('hw-latency');
+  latEl.textContent = gpuMs.toFixed(2);
+  const statusEl = document.getElementById('hw-latency-status');
+  if (gpuMs < 1) { statusEl.textContent = 'Excellent'; statusEl.style.color = '#0f8'; }
+  else if (gpuMs < 5) { statusEl.textContent = 'Good'; statusEl.style.color = '#4ade80'; }
+  else if (gpuMs < 20) { statusEl.textContent = 'Moderate'; statusEl.style.color = '#f80'; }
+  else { statusEl.textContent = 'Slow'; statusEl.style.color = '#f55'; }
+
+  // Throughput (2000 snakes per pass)
+  const tput = gpuMs > 0 ? Math.round(2000 / (gpuMs / 1000)) : 0;
+  document.getElementById('hw-throughput').textContent = tput.toLocaleString();
+  const tstatEl = document.getElementById('hw-throughput-status');
+  if (tput > 2000000) { tstatEl.textContent = 'GPU-accelerated'; tstatEl.style.color = '#48f'; }
+  else if (tput > 200000) { tstatEl.textContent = 'Fast'; tstatEl.style.color = '#0f8'; }
+  else { tstatEl.textContent = 'CPU mode'; tstatEl.style.color = '#f80'; }
+
+  // Sparkline
+  sparkHistory.push(gpuMs);
+  if (sparkHistory.length > SPARK_MAX) sparkHistory.shift();
+  const maxMs = Math.max(...sparkHistory, 0.1);
+  const bars = sparkContainer.children;
+  for (let i = 0; i < SPARK_MAX; i++) {
+    const idx = i - (SPARK_MAX - sparkHistory.length);
+    if (idx < 0) { bars[i].style.height = '1px'; bars[i].style.background = '#222'; continue; }
+    const v = sparkHistory[idx];
+    const h = Math.max(1, (v / maxMs) * 24);
+    bars[i].style.height = h + 'px';
+    const ratio = v / maxMs;
+    if (ratio < 0.4) bars[i].style.background = '#0f8';
+    else if (ratio < 0.7) bars[i].style.background = '#4ade80';
+    else if (ratio < 0.9) bars[i].style.background = '#f80';
+    else bars[i].style.background = '#f55';
+  }
+}
+
+// Fetch backend info
+function fetchBackendInfo() {
+  fetch('/info').then(r => r.json()).then(info => {
+    const el = document.getElementById('hw-backend');
+    const typeEl = document.getElementById('hw-backend-type');
+    el.textContent = info.backend;
+    if (info.backend.includes('Metal')) {
+      typeEl.textContent = 'GPU Compute Shader (WGSL)';
+      typeEl.style.color = '#48f';
+    } else if (info.backend.includes('Vulkan')) {
+      typeEl.textContent = 'GPU Compute Shader (WGSL)';
+      typeEl.style.color = '#48f';
+    } else if (info.backend.includes('CPU')) {
+      typeEl.textContent = 'Sequential CPU fallback';
+      typeEl.style.color = '#f80';
+    } else {
+      typeEl.textContent = 'Initializing...';
+      typeEl.style.color = '#444';
+      setTimeout(fetchBackendInfo, 2000);
+    }
+  }).catch(() => {
+    setTimeout(fetchBackendInfo, 2000);
+  });
+}
+fetchBackendInfo();
 
 // Draw empty state
 gx.fillStyle='#0a0a0a'; gx.fillRect(0,0,360,360);
