@@ -165,6 +165,43 @@
     transition: height 0.15s ease, background 0.15s ease;
     min-height: 1px;
   }
+
+  /* Leaderboard */
+  .lb-container {
+    width: 100%;
+    max-width: 900px;
+  }
+  .lb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+#lb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9px;
+  }
+  #lb-table th {
+    text-align: left;
+    color: #555;
+    font-size: 8px;
+    letter-spacing: 1px;
+    padding: 3px 6px;
+    border-bottom: 1px solid #222;
+  }
+  #lb-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #1a1a1a;
+    color: #aaa;
+  }
+  #lb-table tr:hover td { background: #151515; }
+  #lb-table tr.gold td { color: #ffd700; }
+  #lb-table tr.silver td { color: #c0c0c0; }
+  #lb-table tr.bronze td { color: #cd7f32; }
+  #lb-table .rank { font-weight: bold; width: 30px; }
+  #lb-table .score { color: #0f8; font-weight: bold; }
+  .lb-empty { color: #333; font-size: 9px; padding: 8px; text-align: center; }
 </style>
 </head>
 <body>
@@ -255,6 +292,30 @@
   </div>
 </div>
 
+<!-- Leaderboard -->
+<div class="lb-container">
+  <div class="lb-header">
+    <div class="label" style="margin:0">LEADERBOARD — HALL OF FAME</div>
+  </div>
+  <table id="lb-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>PLAYER</th>
+        <th>SCORE</th>
+        <th>GEN</th>
+        <th>STAGE</th>
+        <th>LIFETIME</th>
+        <th>FITNESS</th>
+        <th>DATE</th>
+      </tr>
+    </thead>
+    <tbody id="lb-body">
+      <tr><td colspan="8" class="lb-empty">No records yet. Start training!</td></tr>
+    </tbody>
+  </table>
+</div>
+
 <!-- Log Panel -->
 <div class="log-container">
   <div class="log-header">
@@ -296,6 +357,9 @@ function connect() {
     fetch('/logs').then(r=>r.json()).then(logs => {
       for (const l of logs) addLog(l.timestamp, l.message, l.kind);
     }).catch(()=>{});
+    fetch('/leaderboard').then(r => r.json()).then(entries => {
+      renderLeaderboard(entries);
+    }).catch(()=>{});
   };
   ws.onclose = () => {
     document.getElementById('connection').textContent = 'disconnected';
@@ -307,6 +371,7 @@ function connect() {
     if (msg.type === 'state') drawState(msg);
     else if (msg.type === 'graph') { scores = msg.scores; drawGraph(); }
     else if (msg.type === 'log') addLog(msg.timestamp, msg.message, msg.kind);
+    else if (msg.type === 'leaderboard') renderLeaderboard(msg.entries);
   };
 }
 connect();
@@ -347,6 +412,28 @@ document.getElementById('stage-select').addEventListener('change', (e) => {
   document.getElementById('btn-pause').style.display = '';
   running = true;
 });
+
+function renderLeaderboard(entries) {
+  const tbody = document.getElementById('lb-body');
+  if (!entries || entries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="lb-empty">No records yet. Start training!</td></tr>';
+    return;
+  }
+  tbody.innerHTML = entries.map((e, i) => {
+    const cls = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    const medal = i === 0 ? '&#127942;' : i === 1 ? '&#129352;' : i === 2 ? '&#129353;' : e.rank;
+    return `<tr class="${cls}">
+      <td class="rank">${medal}</td>
+      <td>${escHtml(e.player)}</td>
+      <td class="score">${e.score}</td>
+      <td>${e.gen}</td>
+      <td>${e.stage}</td>
+      <td>${e.lifetime}</td>
+      <td>${e.fitness.toLocaleString()}</td>
+      <td>${e.timestamp.split(' ')[0]}</td>
+    </tr>`;
+  }).join('');
+}
 
 let deathAnim = null;
 let lastSnakeId = -1;
