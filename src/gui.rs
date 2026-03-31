@@ -1,5 +1,6 @@
 use crate::protocol::ClientMsg;
 use crate::shared::{LogKind, SharedState};
+use crate::stage::StageKind;
 use eframe::egui;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -10,7 +11,14 @@ pub struct SnakeApp {
     speed_str: String,
     auto_scroll: bool,
     rt: tokio::runtime::Handle,
+    stage_idx: usize,
 }
+
+const STAGE_OPTIONS: &[(StageKind, &str)] = &[
+    (StageKind::Classic, "Classic (Empty)"),
+    (StageKind::Warehouse, "Warehouse (Racks)"),
+    (StageKind::Mixed, "Mixed (Randomized)"),
+];
 
 impl SnakeApp {
     pub fn new(
@@ -24,6 +32,7 @@ impl SnakeApp {
             speed_str: "10".into(),
             auto_scroll: true,
             rt,
+            stage_idx: 0,
         }
     }
 }
@@ -118,6 +127,38 @@ impl eframe::App for SnakeApp {
 
                             ui.label("Network:");
                             ui.label("24 → 16 → 16 → 4 (sigmoid)");
+                            ui.end_row();
+
+                            ui.label("Stage:");
+                            let prev_idx = self.stage_idx;
+                            egui::ComboBox::from_id_salt("stage_combo")
+                                .selected_text(STAGE_OPTIONS[self.stage_idx].1)
+                                .show_ui(ui, |ui| {
+                                    for (i, (_, label)) in STAGE_OPTIONS.iter().enumerate() {
+                                        ui.selectable_value(&mut self.stage_idx, i, *label);
+                                    }
+                                });
+                            if self.stage_idx != prev_idx {
+                                let (kind, _) = STAGE_OPTIONS[self.stage_idx];
+                                let value = match kind {
+                                    StageKind::Classic => "classic",
+                                    StageKind::Warehouse => "warehouse",
+                                    StageKind::Mixed => "mixed",
+                                }.to_string();
+                                let tx = self.cmd_tx.clone();
+                                let _ = self.rt.spawn(async move {
+                                    let _ = tx.send(ClientMsg::Stage { value }).await;
+                                });
+                            }
+                            ui.end_row();
+
+                            ui.label("");
+                            if ui.button("🔀 Shuffle Layout").clicked() {
+                                let tx = self.cmd_tx.clone();
+                                let _ = self.rt.spawn(async move {
+                                    let _ = tx.send(ClientMsg::Regenerate).await;
+                                });
+                            }
                             ui.end_row();
 
                             ui.label("Speed:");

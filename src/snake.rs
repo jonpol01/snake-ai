@@ -2,6 +2,7 @@ use rand::Rng;
 use serde::Serialize;
 
 use crate::neural_net::NeuralNet;
+use crate::stage::Stage;
 
 pub const GRID_SIZE: usize = 20;
 
@@ -40,9 +41,17 @@ pub struct Snake {
 }
 
 impl Snake {
+    #[allow(dead_code)]
     pub fn new() -> Self {
+        Self::new_with_stage(&Stage::default())
+    }
+
+    pub fn new_with_stage(stage: &Stage) -> Self {
         let cx = (GRID_SIZE / 2) as i32;
         let cy = (GRID_SIZE / 2) as i32;
+
+        // More starting life on obstacle stages so snakes can explore around racks
+        let starting_life = if stage.obstacles.is_empty() { 200 } else { 250 };
 
         let mut snake = Self {
             brain: NeuralNet::new(),
@@ -54,7 +63,7 @@ impl Snake {
             food_x: 0,
             food_y: 0,
             score: 0,
-            life_left: 200,
+            life_left: starting_life,
             lifetime: 0,
             dead: false,
             x_vel: 0,
@@ -63,11 +72,11 @@ impl Snake {
             vision: [0.0; 24],
             decision: [0.0; 4],
         };
-        snake.place_food();
+        snake.place_food(stage);
         snake
     }
 
-    pub fn place_food(&mut self) {
+    pub fn place_food(&mut self, stage: &Stage) {
         let mut rng = rand::thread_rng();
         let occupied: std::collections::HashSet<(i32, i32)> =
             self.body.iter().map(|p| (p.x, p.y)).collect();
@@ -75,7 +84,7 @@ impl Snake {
         let mut free = Vec::new();
         for x in 0..GRID_SIZE as i32 {
             for y in 0..GRID_SIZE as i32 {
-                if !occupied.contains(&(x, y)) {
+                if !occupied.contains(&(x, y)) && !stage.is_obstacle(x, y) {
                     free.push((x, y));
                 }
             }
@@ -95,7 +104,7 @@ impl Snake {
         self.body.iter().any(|p| p.x == x && p.y == y)
     }
 
-    pub fn look(&mut self) {
+    pub fn look(&mut self, stage: &Stage) {
         let head = &self.body[0];
         let size = GRID_SIZE as i32;
 
@@ -107,6 +116,11 @@ impl Snake {
             let mut py = head.y + dy;
 
             while px >= 0 && px < size && py >= 0 && py < size {
+                // Obstacles block line of sight (treated as body)
+                if stage.is_obstacle(px, py) {
+                    body = 1.0;
+                    break;
+                }
                 if food == 0.0 && px == self.food_x && py == self.food_y {
                     food = 1.0;
                 }
@@ -124,7 +138,7 @@ impl Snake {
         }
     }
 
-    pub fn move_snake(&mut self) {
+    pub fn move_snake(&mut self, stage: &Stage) {
         if self.dead {
             return;
         }
@@ -146,6 +160,11 @@ impl Snake {
             return;
         }
 
+        if stage.is_obstacle(nx, ny) {
+            self.dead = true;
+            return;
+        }
+
         if self.body_collide(nx, ny) {
             self.dead = true;
             return;
@@ -156,7 +175,7 @@ impl Snake {
         if nx == self.food_x && ny == self.food_y {
             self.score += 1;
             self.life_left = (self.life_left + 100).min(500);
-            self.place_food();
+            self.place_food(stage);
         } else {
             self.body.pop();
         }
@@ -164,10 +183,14 @@ impl Snake {
 
     pub fn calc_fitness(&mut self) {
         let lt = self.lifetime as f64;
+        // Linear lifetime so circlers can't dominate food-seekers:
+        //   Circler (200 steps, 0 food) = 200      ← weak
+        //   Eater (100 steps, 2 food)   = 100*4=400 ← wins
+        //   Good (200 steps, 5 food)    = 200*32=6400
         if self.score < 10 {
-            self.fitness = lt * lt * 2.0f64.powi(self.score as i32);
+            self.fitness = lt * 2.0f64.powi(self.score as i32);
         } else {
-            self.fitness = lt * lt * 2.0f64.powi(10) * (self.score as f64 - 9.0);
+            self.fitness = lt * 2.0f64.powi(10) * (self.score as f64 - 9.0);
         }
     }
 

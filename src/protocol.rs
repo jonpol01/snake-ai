@@ -23,6 +23,8 @@ pub enum ServerMsg {
         nn_weights: NeuralNet,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         dead: bool,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        obstacles: Vec<(i32, i32)>,
     },
     #[serde(rename = "graph")]
     Graph { scores: Vec<u32> },
@@ -46,4 +48,8 @@ pub enum ClientMsg {
     Resume,
     #[serde(rename = "speed")]
     Speed { value: u32 },
+    #[serde(rename = "stage")]
+    Stage { value: String },
+    #[serde(rename = "regenerate")]
+    Regenerate,
 }

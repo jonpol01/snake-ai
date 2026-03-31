@@ -70,6 +70,20 @@
   button.pause { border-color: #f55; color: #f55; }
   button.pause:hover { background: rgba(255,85,85,0.08); }
   .status { font-size: 9px; color: #333; text-align: center; }
+  select {
+    width: 100%;
+    background: #111;
+    color: #0f8;
+    border: 1px solid #333;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: monospace;
+    font-size: 10px;
+    cursor: pointer;
+    outline: none;
+  }
+  select:focus { border-color: #0f8; }
+  select option { background: #111; color: #ccc; }
 
   /* Log panel */
   .log-container {
@@ -190,6 +204,14 @@
     <button id="btn-start" onclick="doStart()">START</button>
     <button id="btn-pause" onclick="doPause()" style="display:none" class="pause">PAUSE</button>
     <button id="btn-resume" onclick="doResume()" style="display:none">RESUME</button>
+    <hr>
+    <label>STAGE</label>
+    <select id="stage-select">
+      <option value="classic">Classic (Empty)</option>
+      <option value="warehouse">Warehouse (Racks)</option>
+      <option value="mixed">Mixed (Randomized)</option>
+    </select>
+    <button id="btn-regen" onclick="send({type:'regenerate'})" style="border-color:#f80;color:#f80;margin-top:4px">SHUFFLE LAYOUT</button>
     <hr>
     <div class="label" style="margin-top:3px">BEST SCORE / GEN</div>
     <canvas id="graph" width="168" height="70"></canvas>
@@ -317,6 +339,15 @@ speedEl.addEventListener('input', () => {
   send({type:'speed', value: parseInt(speedEl.value)});
 });
 
+document.getElementById('stage-select').addEventListener('change', (e) => {
+  send({type: 'stage', value: e.target.value});
+  // Reset UI to running state
+  document.getElementById('btn-start').style.display = 'none';
+  document.getElementById('btn-resume').style.display = 'none';
+  document.getElementById('btn-pause').style.display = '';
+  running = true;
+});
+
 let deathAnim = null;
 
 function drawState(s) {
@@ -326,26 +357,163 @@ function drawState(s) {
   document.getElementById('gpu').textContent = s.gpu_ms.toFixed(2) + 'ms';
   document.getElementById('score').textContent = s.score;
 
-  gx.fillStyle = '#0a0a0a'; gx.fillRect(0,0,360,360);
-  gx.strokeStyle = '#151515'; gx.lineWidth = 0.5;
-  for (let i = 0; i <= SIZE; i++) {
-    gx.beginPath(); gx.moveTo(i*CELL,0); gx.lineTo(i*CELL,SIZE*CELL); gx.stroke();
-    gx.beginPath(); gx.moveTo(0,i*CELL); gx.lineTo(SIZE*CELL,i*CELL); gx.stroke();
-  }
-
-  gx.shadowColor = '#f66'; gx.shadowBlur = 8;
-  gx.fillStyle = '#f33';
-  gx.beginPath();
-  gx.arc(s.food[0]*CELL+CELL/2, s.food[1]*CELL+CELL/2, CELL/2.5, 0, Math.PI*2);
-  gx.fill(); gx.shadowBlur = 0;
-
-  const body = s.snake_body;
+  const isWarehouse = s.obstacles && s.obstacles.length > 0;
   const isDead = s.dead;
 
+  // ── Background ──
+  if (isWarehouse) {
+    // ── Bright cartoon warehouse floor ──
+    // Base concrete
+    gx.fillStyle = '#d4d0c8'; gx.fillRect(0,0,360,360);
+    // Concrete tile joints
+    gx.strokeStyle = '#c0bbb2'; gx.lineWidth = 0.5;
+    for (let i = 0; i <= SIZE; i++) {
+      gx.beginPath(); gx.moveTo(i*CELL,0); gx.lineTo(i*CELL,SIZE*CELL); gx.stroke();
+      gx.beginPath(); gx.moveTo(0,i*CELL); gx.lineTo(SIZE*CELL,i*CELL); gx.stroke();
+    }
+    // Subtle floor texture
+    gx.fillStyle = '#ccc7be';
+    for (let i = 0; i < 60; i++) {
+      gx.fillRect((i*137+51)%358, (i*211+97)%358, 3, 1);
+    }
+    // Yellow safety border (2px thick around edge)
+    gx.strokeStyle = '#e8b830'; gx.lineWidth = 3;
+    gx.strokeRect(1.5, 1.5, 357, 357);
+    // Dashed yellow lane guides
+    gx.strokeStyle = '#daa520'; gx.lineWidth = 1.5; gx.setLineDash([8,6]);
+    gx.beginPath(); gx.moveTo(0,180); gx.lineTo(360,180); gx.stroke();
+    gx.beginPath(); gx.moveTo(180,0); gx.lineTo(180,360); gx.stroke();
+    gx.setLineDash([]);
+    // Green pathway strips along edges
+    gx.fillStyle = 'rgba(80,180,80,0.12)';
+    gx.fillRect(0, 0, 360, CELL);
+    gx.fillRect(0, 360-CELL, 360, CELL);
+    gx.fillRect(0, 0, CELL, 360);
+    gx.fillRect(360-CELL, 0, CELL, 360);
+    // Hazard chevrons at corners
+    gx.fillStyle = '#e8b830';
+    for (const [cx,cy,dx,dy] of [[0,0,1,1],[360,0,-1,1],[0,360,1,-1],[360,360,-1,-1]]) {
+      for (let s = 0; s < 3; s++) {
+        gx.globalAlpha = 0.15;
+        gx.fillRect(cx+dx*(s*5), cy+dy*(s*5), dx*4, dy*4);
+      }
+    }
+    gx.globalAlpha = 1;
+  } else {
+    // Classic dark grid
+    gx.fillStyle = '#0a0a0a'; gx.fillRect(0,0,360,360);
+    gx.strokeStyle = '#151515'; gx.lineWidth = 0.5;
+    for (let i = 0; i <= SIZE; i++) {
+      gx.beginPath(); gx.moveTo(i*CELL,0); gx.lineTo(i*CELL,SIZE*CELL); gx.stroke();
+      gx.beginPath(); gx.moveTo(0,i*CELL); gx.lineTo(SIZE*CELL,i*CELL); gx.stroke();
+    }
+  }
+
+  // ── Obstacles (warehouse racks) ──
+  if (isWarehouse) {
+    for (const [ox, oy] of s.obstacles) {
+      const rx = ox*CELL, ry = oy*CELL;
+      // Shadow
+      gx.fillStyle = 'rgba(0,0,0,0.1)';
+      gx.fillRect(rx+2, ry+2, CELL-1, CELL-1);
+      // Rack body (warm orange-brown, flat cartoon)
+      gx.fillStyle = '#c48a3c';
+      gx.beginPath(); gx.roundRect(rx+1, ry+1, CELL-2, CELL-2, 2); gx.fill();
+      // Top highlight
+      gx.fillStyle = '#d4a050';
+      gx.fillRect(rx+2, ry+2, CELL-4, 3);
+      // Shelf grid
+      gx.strokeStyle = '#a06a20'; gx.lineWidth = 0.6;
+      gx.strokeRect(rx+1, ry+1, CELL-2, CELL-2);
+      gx.beginPath(); gx.moveTo(rx+1, ry+CELL/2); gx.lineTo(rx+CELL-1, ry+CELL/2); gx.stroke();
+      gx.beginPath(); gx.moveTo(rx+CELL/2, ry+1); gx.lineTo(rx+CELL/2, ry+CELL-1); gx.stroke();
+      // Mini cargo boxes on rack (colorful)
+      gx.fillStyle = '#6aaa4a'; gx.fillRect(rx+3, ry+3, 5, 4);
+      gx.fillStyle = '#4488cc'; gx.fillRect(rx+CELL/2+1, ry+3, 5, 4);
+      gx.fillStyle = '#cc6644'; gx.fillRect(rx+3, ry+CELL/2+2, 5, 4);
+      gx.fillStyle = '#8866aa'; gx.fillRect(rx+CELL/2+1, ry+CELL/2+2, 5, 4);
+    }
+  }
+
+  // ── Food / pickup ──
+  if (isWarehouse) {
+    // Bright cardboard package with tape
+    const fx = s.food[0]*CELL, fy = s.food[1]*CELL;
+    gx.shadowColor = '#e88020'; gx.shadowBlur = 5;
+    // Box
+    gx.fillStyle = '#e8a040';
+    gx.beginPath(); gx.roundRect(fx+3, fy+3, CELL-6, CELL-6, 2); gx.fill();
+    gx.shadowBlur = 0;
+    // Box flaps (top highlight)
+    gx.fillStyle = '#f0b858';
+    gx.fillRect(fx+4, fy+3, CELL-8, 3);
+    // Packing tape (center cross)
+    gx.strokeStyle = '#c87828'; gx.lineWidth = 1.5;
+    gx.beginPath(); gx.moveTo(fx+CELL/2, fy+3); gx.lineTo(fx+CELL/2, fy+CELL-3); gx.stroke();
+    gx.beginPath(); gx.moveTo(fx+4, fy+CELL/2); gx.lineTo(fx+CELL-4, fy+CELL/2); gx.stroke();
+    // Outline
+    gx.strokeStyle = '#b07020'; gx.lineWidth = 0.7;
+    gx.beginPath(); gx.roundRect(fx+3, fy+3, CELL-6, CELL-6, 2); gx.stroke();
+  } else {
+    gx.shadowColor = '#f66'; gx.shadowBlur = 8;
+    gx.fillStyle = '#f33';
+    gx.beginPath();
+    gx.arc(s.food[0]*CELL+CELL/2, s.food[1]*CELL+CELL/2, CELL/2.5, 0, Math.PI*2);
+    gx.fill(); gx.shadowBlur = 0;
+  }
+
+  // ── Snake / AMR robot ──
+  const body = s.snake_body;
+  if (isWarehouse) {
+    drawAMR(body, isDead);
+  } else {
+    drawClassicSnake(body, isDead);
+  }
+
+  // ── Death overlay ──
+  if (isDead) {
+    if (isWarehouse) {
+      gx.fillStyle = 'rgba(180,40,30,0.18)'; gx.fillRect(0,0,360,360);
+      gx.save();
+      // White text with red shadow on bright floor
+      gx.shadowColor = '#c03020'; gx.shadowBlur = 10;
+      gx.fillStyle = '#dd3322';
+      gx.font = 'bold 18px monospace';
+      gx.textAlign = 'center'; gx.textBaseline = 'middle';
+      gx.fillText('ROUTE FAILED', 180, 170);
+      gx.shadowBlur = 0;
+      gx.fillStyle = '#886655';
+      gx.font = '11px monospace';
+      gx.fillText(`Deliveries: ${s.score}`, 180, 195);
+      gx.restore();
+    } else {
+      const grad = gx.createRadialGradient(180,180,60, 180,180,260);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(200,30,30,0.35)');
+      gx.fillStyle = grad;
+      gx.fillRect(0,0,360,360);
+      gx.save();
+      gx.shadowColor = '#f44'; gx.shadowBlur = 12;
+      gx.fillStyle = '#f55';
+      gx.font = 'bold 18px monospace';
+      gx.textAlign = 'center'; gx.textBaseline = 'middle';
+      gx.fillText('GEN OVER', 180, 170);
+      gx.shadowBlur = 0;
+      gx.fillStyle = '#888';
+      gx.font = '11px monospace';
+      gx.fillText(`Score: ${s.score}`, 180, 195);
+      gx.restore();
+    }
+  }
+
+  drawNN(s.nn_weights, s.vision, s.decision);
+  updateHardwareMonitor(s.gpu_ms);
+}
+
+function drawClassicSnake(body, isDead) {
   for (let i = body.length-1; i >= 0; i--) {
     const b = body[i];
     if (isDead) {
-      // Dead snake: red tint
       gx.shadowBlur = 0;
       if (i === 0) { gx.shadowColor='#f44'; gx.shadowBlur=6; gx.fillStyle='#f44'; }
       else { const t=1-i/body.length; gx.fillStyle=`rgba(160,40,40,${0.3+t*0.7})`; }
@@ -357,32 +525,112 @@ function drawState(s) {
     gx.fillRect(b.x*CELL+p, b.y*CELL+p, CELL-p*2, CELL-p*2);
   }
   gx.shadowBlur = 0;
+}
 
-  // Death overlay effect
-  if (isDead) {
-    // Red vignette flash
-    const grad = gx.createRadialGradient(180,180,60, 180,180,260);
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(200,30,30,0.35)');
-    gx.fillStyle = grad;
-    gx.fillRect(0,0,360,360);
+function drawAMR(body, isDead) {
+  const D = isDead;
 
-    // "GEN OVER" text
-    gx.save();
-    gx.shadowColor = '#f44'; gx.shadowBlur = 12;
-    gx.fillStyle = '#f55';
-    gx.font = 'bold 18px monospace';
-    gx.textAlign = 'center'; gx.textBaseline = 'middle';
-    gx.fillText('GEN OVER', 180, 170);
-    gx.shadowBlur = 0;
-    gx.fillStyle = '#888';
-    gx.font = '11px monospace';
-    gx.fillText(`Score: ${s.score}`, 180, 195);
-    gx.restore();
+  // ── Tow lines (draw first, under everything) ──
+  gx.strokeStyle = D ? '#cc5544' : '#607888';
+  gx.lineWidth = 2;
+  for (let i = 0; i < body.length - 1; i++) {
+    const a = body[i], b = body[i+1];
+    gx.beginPath();
+    gx.moveTo(a.x*CELL+CELL/2, a.y*CELL+CELL/2);
+    gx.lineTo(b.x*CELL+CELL/2, b.y*CELL+CELL/2);
+    gx.stroke();
+    // Coupling joint dot
+    const mx = (a.x+b.x)*CELL/2+CELL/2, my = (a.y+b.y)*CELL/2+CELL/2;
+    gx.fillStyle = D ? '#aa4433' : '#506878';
+    gx.beginPath(); gx.arc(mx, my, 1.5, 0, Math.PI*2); gx.fill();
   }
 
-  drawNN(s.nn_weights, s.vision, s.decision);
-  updateHardwareMonitor(s.gpu_ms);
+  // ── Trailing carts (body segments, back to front) ──
+  for (let i = body.length-1; i >= 1; i--) {
+    const b = body[i];
+    const bx = b.x*CELL, by = b.y*CELL;
+
+    // Shadow
+    gx.fillStyle = 'rgba(0,0,0,0.08)';
+    gx.fillRect(bx+3, by+3, CELL-2, CELL-2);
+
+    // Cart platform (light grey flat dolly)
+    gx.fillStyle = D ? '#cc8877' : '#b8c0c8';
+    gx.beginPath(); gx.roundRect(bx+2, by+2, CELL-4, CELL-4, 3); gx.fill();
+    gx.strokeStyle = D ? '#aa6655' : '#8898a8';
+    gx.lineWidth = 0.8;
+    gx.beginPath(); gx.roundRect(bx+2, by+2, CELL-4, CELL-4, 3); gx.stroke();
+
+    // Cargo box on cart (alternating colors based on index)
+    const colors = D
+      ? ['#cc6655','#bb5544','#dd7766']
+      : ['#e8a040','#6aaa4a','#4488cc','#cc6644'];
+    gx.fillStyle = colors[i % colors.length];
+    gx.beginPath(); gx.roundRect(bx+4, by+4, CELL-8, CELL-8, 2); gx.fill();
+    gx.strokeStyle = D ? '#993322' : '#00000030';
+    gx.lineWidth = 0.5;
+    gx.beginPath(); gx.roundRect(bx+4, by+4, CELL-8, CELL-8, 2); gx.stroke();
+
+    // Wheels (4 dark circles at corners)
+    gx.fillStyle = D ? '#663322' : '#384048';
+    for (const [wx,wy] of [[bx+3,by+3],[bx+CELL-5,by+3],[bx+3,by+CELL-5],[bx+CELL-5,by+CELL-5]]) {
+      gx.beginPath(); gx.arc(wx+1, wy+1, 1.5, 0, Math.PI*2); gx.fill();
+    }
+  }
+
+  // ── AMR robot head ──
+  const h = body[0];
+  const hx = h.x*CELL, hy = h.y*CELL;
+
+  // Shadow
+  gx.fillStyle = 'rgba(0,0,0,0.12)';
+  gx.beginPath(); gx.roundRect(hx+2, hy+2, CELL, CELL, 4); gx.fill();
+
+  // Main chassis
+  gx.shadowColor = D ? '#ff4444' : '#40a0e0';
+  gx.shadowBlur = 4;
+  gx.fillStyle = D ? '#cc3333' : '#2888c8';
+  gx.beginPath(); gx.roundRect(hx+1, hy+1, CELL-2, CELL-2, 5); gx.fill();
+  gx.shadowBlur = 0;
+
+  // Top plate (lighter)
+  gx.fillStyle = D ? '#dd5544' : '#40a8e8';
+  gx.beginPath(); gx.roundRect(hx+3, hy+3, CELL-6, CELL-6, 3); gx.fill();
+
+  // Outline
+  gx.strokeStyle = D ? '#aa2222' : '#1868a0';
+  gx.lineWidth = 1;
+  gx.beginPath(); gx.roundRect(hx+1, hy+1, CELL-2, CELL-2, 5); gx.stroke();
+
+  // Headlight bar (front sensor — top edge)
+  gx.fillStyle = D ? '#ff6655' : '#80e0ff';
+  gx.beginPath(); gx.roundRect(hx+4, hy+2, CELL-8, 2.5, 1); gx.fill();
+
+  // Rear light bar
+  gx.fillStyle = D ? '#992222' : '#f0a030';
+  gx.beginPath(); gx.roundRect(hx+5, hy+CELL-4, CELL-10, 2, 1); gx.fill();
+
+  // Center lidar dome
+  gx.fillStyle = D ? '#ff8877' : '#e0f0ff';
+  gx.beginPath(); gx.arc(hx+CELL/2, hy+CELL/2, 3, 0, Math.PI*2); gx.fill();
+  gx.strokeStyle = D ? '#cc4433' : '#60b0e0';
+  gx.lineWidth = 0.8;
+  gx.beginPath(); gx.arc(hx+CELL/2, hy+CELL/2, 3, 0, Math.PI*2); gx.stroke();
+  // Inner dot
+  gx.fillStyle = D ? '#ff4433' : '#2080c0';
+  gx.beginPath(); gx.arc(hx+CELL/2, hy+CELL/2, 1.2, 0, Math.PI*2); gx.fill();
+
+  // Lidar scan ring
+  gx.strokeStyle = D ? 'rgba(255,60,40,0.2)' : 'rgba(64,160,224,0.2)';
+  gx.lineWidth = 0.5;
+  gx.beginPath(); gx.arc(hx+CELL/2, hy+CELL/2, 6, 0, Math.PI*2); gx.stroke();
+
+  // Wheels (4 dark rounded rects on sides)
+  gx.fillStyle = D ? '#661111' : '#202830';
+  gx.beginPath(); gx.roundRect(hx, hy+3, 2.5, 5, 1); gx.fill();
+  gx.beginPath(); gx.roundRect(hx, hy+CELL-8, 2.5, 5, 1); gx.fill();
+  gx.beginPath(); gx.roundRect(hx+CELL-2.5, hy+3, 2.5, 5, 1); gx.fill();
+  gx.beginPath(); gx.roundRect(hx+CELL-2.5, hy+CELL-8, 2.5, 5, 1); gx.fill();
 }
 
 function drawNN(brain, vision, decision) {
