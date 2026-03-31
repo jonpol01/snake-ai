@@ -24,7 +24,7 @@ The Rust backend runs the simulation and serves a browser-based dashboard over W
 - **Native GUI** -- egui control panel with stats, stage selector, and log terminal
 - **Auto-checkpoint** -- saves progress every 10 generations to `checkpoint.json`, resumes on restart
 - **Embedded frontend** -- `index.html` baked into the binary, works when double-clicking from anywhere
-- **Paper included** -- `paper.pdf` with full algorithm description
+- **Technical writeup** -- `neuroevolution-snake.pdf` with full algorithm description and findings
 
 ## Stages
 
