@@ -51,6 +51,22 @@ Switching stages preserves trained brains -- no progress is lost.
 
 ## Quick Start
 
+### One-liner (auto-detects Rust or Docker)
+
+```bash
+git clone https://github.com/jonpol01/snake-ai.git
+cd snake-ai
+./run.sh
+```
+
+The script will:
+1. Use the pre-built binary if it exists
+2. Otherwise build from source if Rust is installed
+3. Otherwise use Docker if available
+4. Tell you what to install if neither is found
+
+Then open **http://localhost:3030** in your browser and click **Start**.
+
 ### Native (macOS / Linux)
 
 ```bash
