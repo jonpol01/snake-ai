@@ -1,0 +1,38 @@
+holland1975:
+  type: book
+  title: "Adaptation in Natural and Artificial Systems"
+  author: ["Holland, John H."]
+  date: 1975
+  publisher: University of Michigan Press
+
+stanley2002:
+  type: article
+  title: "Evolving Neural Networks through Augmenting Topologies"
+  author: ["Stanley, Kenneth O.", "Miikkulainen, Risto"]
+  date: 2002
+  parent:
+    type: periodical
+    title: Evolutionary Computation
+    volume: 10
+    issue: 2
+  page-range: 99-127
+
+tobin2017:
+  type: article
+  title: "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World"
+  author: ["Tobin, Josh", "Fong, Rachel", "Ray, Alex", "Schneider, Jonas", "Zaremba, Wojciech", "Abbeel, Pieter"]
+  date: 2017
+  parent:
+    type: proceedings
+    title: "IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)"
+
+stanley2019:
+  type: article
+  title: "Designing neural networks through neuroevolution"
+  author: ["Stanley, Kenneth O.", "Clune, Jeff", "Lehman, Joel", "Miikkulainen, Risto"]
+  date: 2019
+  parent:
+    type: periodical
+    title: Nature Machine Intelligence
+    volume: 1
+  page-range: 24-35
