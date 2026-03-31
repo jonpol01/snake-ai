@@ -51,7 +51,11 @@ impl Matrix {
         let mut rng = rand::thread_rng();
         for v in &mut self.data {
             if rng.gen::<f32>() < rate {
-                *v = rng.gen_range(-1.0..1.0);
+                // Gaussian perturbation: nudge existing weight instead of replacing
+                // This preserves learned patterns while still exploring
+                let noise: f32 = (rng.gen::<f32>() + rng.gen::<f32>() + rng.gen::<f32>()
+                    + rng.gen::<f32>() - 2.0) * 0.5; // ~N(0, 0.25)
+                *v = (*v + noise).clamp(-2.0, 2.0);
             }
         }
     }
@@ -60,7 +64,7 @@ impl Matrix {
 pub const HIDDEN_NODES: usize = 16;
 pub const INPUT_NODES: usize = 24;
 pub const OUTPUT_NODES: usize = 4;
-pub const MUTATION_RATE: f32 = 0.05;
+pub const MUTATION_RATE: f32 = 0.08;
 
 // Weight counts per layer (including bias column):
 // Layer 0: 16 × 25 = 400
