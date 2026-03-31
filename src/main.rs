@@ -220,6 +220,7 @@ async fn sim_loop(
     let mut stage_kind = StageKind::Classic;
     let mut coach_interval: u32 = 0; // 0 = disabled, N = every N generations
     let mut last_coach_gen: u32 = 0;
+    let mut live_best_score: u32 = 0; // Track best score seen mid-generation
     let mut frame_interval = tokio::time::interval(std::time::Duration::from_millis(33));
 
     // Helper: push log to both SharedState and WebSocket
@@ -279,6 +280,9 @@ async fn sim_loop(
                                 let _ = state_tx.send(json);
                             }
                         }
+
+                        // Reset live tracker for next gen
+                        live_best_score = 0;
 
                         // Brief pause so the death frame is visible
                         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -434,6 +438,61 @@ async fn sim_loop(
                     pop.last_compute_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                     pop.move_all();
+
+                    // Track best score mid-generation — save immediately so it's never lost
+                    let current_max = pop.snakes.iter().map(|s| s.score).max().unwrap_or(0);
+                    let all_time = pop.best_scores.iter().copied().max().unwrap_or(0);
+                    if current_max > all_time && current_max > live_best_score {
+                        live_best_score = current_max;
+
+                        // Find the champion snake (may be dead or alive)
+                        let champion = pop.snakes.iter().enumerate()
+                            .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
+                        if let Some((champ_idx, champ)) = champion {
+                            // Update best brain for elitism
+                            pop.best_brain = Some(champ.brain.clone());
+                            pop.best_fitness = champ.fitness;
+
+                            // Record to leaderboard immediately
+                            let stage_name = match pop.stage.kind {
+                                stage::StageKind::Classic => "Classic",
+                                stage::StageKind::Warehouse => "Warehouse",
+                                stage::StageKind::Mixed => "Mixed",
+                            };
+                            let agent_name = match pop.stage.kind {
+                                stage::StageKind::Warehouse => format!("AMR #{}", champ_idx + 1),
+                                _ => format!("Snake #{}", champ_idx + 1),
+                            };
+                            let entry = leaderboard::LeaderboardEntry {
+                                rank: 0,
+                                player: agent_name,
+                                score: current_max,
+                                gen: pop.gen,
+                                stage: stage_name.to_string(),
+                                lifetime: champ.lifetime,
+                                fitness: champ.fitness,
+                                mutation_rate: neural_net::MUTATION_RATE,
+                                population_size: population::POP_SIZE,
+                                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                            };
+                            lb.add_entry(entry);
+                            lb.save();
+
+                            // Push score and save checkpoint immediately
+                            pop.best_scores.push(current_max);
+                            pop.save_checkpoint();
+
+                            log(&shared, &state_tx,
+                                format!("LIVE RECORD! Score {} — checkpoint saved", current_max),
+                                LogKind::Done);
+
+                            // Broadcast leaderboard update
+                            let lb_msg = ServerMsg::Leaderboard { entries: lb.entries.clone() };
+                            if let Ok(json) = serde_json::to_string(&lb_msg) {
+                                let _ = state_tx.send(json);
+                            }
+                        }
+                    }
                 }
 
                 // Update shared stats
@@ -453,9 +512,10 @@ async fn sim_loop(
                     .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
 
                 if let Some((idx, best)) = best {
+                    let historical_best = pop.best_scores.iter().copied().max().unwrap_or(0);
                     let msg = ServerMsg::State {
                         gen: pop.gen,
-                        best_score: pop.best_scores.iter().copied().max().unwrap_or(0),
+                        best_score: historical_best.max(live_best_score),
                         alive: alive_count,
                         total: population::POP_SIZE,
                         gpu_ms,
