@@ -40,6 +40,9 @@ pub enum ServerMsg {
     Leaderboard {
         entries: Vec<LeaderboardEntry>,
     },
+    /// Evolution stats summary sent to browser for LLM analysis
+    #[serde(rename = "coach_stats")]
+    CoachStats { summary: String, gen: u32 },
 }
 
 
@@ -61,4 +64,6 @@ pub enum ClientMsg {
     Regenerate,
     #[serde(rename = "set_player")]
     SetPlayer { name: String },
+    #[serde(rename = "coach_interval")]
+    CoachInterval { gens: u32 },
 }

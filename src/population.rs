@@ -9,8 +9,17 @@ use crate::stage::{Stage, StageKind};
 pub const POP_SIZE: usize = 2000;
 const CHECKPOINT_PATH: &str = "checkpoint.json";
 
+/// Bump this when the Checkpoint struct or neural net architecture changes.
+/// Old checkpoints (version 0 or missing) are treated as compatible with v1.
+const CHECKPOINT_VERSION: u32 = 1;
+
+fn default_version() -> u32 { 0 }
+
 #[derive(Serialize, Deserialize)]
 struct Checkpoint {
+    /// Format version — missing in old checkpoints, defaults to 0
+    #[serde(default = "default_version")]
+    version: u32,
     gen: u32,
     best_scores: Vec<u32>,
     best_fitness: f64,
@@ -151,6 +160,7 @@ impl Population {
     /// Save checkpoint to disk
     pub fn save_checkpoint(&self) {
         let checkpoint = Checkpoint {
+            version: CHECKPOINT_VERSION,
             gen: self.gen,
             best_scores: self.best_scores.clone(),
             best_fitness: self.best_fitness,
@@ -170,6 +180,16 @@ impl Population {
         }
         let data = std::fs::read_to_string(CHECKPOINT_PATH).ok()?;
         let cp: Checkpoint = serde_json::from_str(&data).ok()?;
+
+        // Version compatibility check
+        if cp.version > CHECKPOINT_VERSION {
+            eprintln!(
+                "WARNING: Checkpoint is version {} but this build supports version {}. \
+                 It may be incompatible — starting fresh.",
+                cp.version, CHECKPOINT_VERSION
+            );
+            return None;
+        }
 
         // Always load — single brain works across all stages
         let stage = Stage::new(stage_kind);

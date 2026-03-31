@@ -202,6 +202,195 @@
   #lb-table .rank { font-weight: bold; width: 30px; }
   #lb-table .score { color: #0f8; font-weight: bold; }
   .lb-empty { color: #333; font-size: 9px; padding: 8px; text-align: center; }
+
+  /* AI Coach */
+  .coach-container {
+    width: 100%;
+    max-width: 900px;
+  }
+  .coach-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    gap: 8px;
+  }
+  .coach-header .label { margin: 0; }
+  .llm-config {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+  }
+  .llm-config input {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 3px;
+    color: #0f8;
+    font-family: monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    width: 160px;
+    outline: none;
+    transition: width 0.2s, border-color 0.15s;
+  }
+  .llm-config input:focus { width: 220px; border-color: #0f8; }
+  .llm-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #333;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  .llm-status-dot.online { background: #0f8; }
+  .llm-status-dot.offline { background: #f55; }
+  .llm-status-dot.checking { background: #f80; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .coach-gear {
+    background: transparent;
+    border: 1px solid #333;
+    color: #555;
+    width: auto;
+    padding: 2px 6px;
+    font-size: 9px;
+    margin: 0;
+    cursor: pointer;
+  }
+  .coach-gear:hover { border-color: #0f8; color: #0f8; }
+
+  #coach-panel {
+    background: #0a0a0a;
+    border: 1px solid #1f2937;
+    border-radius: 4px;
+    padding: 6px 8px;
+    height: 140px;
+    overflow-y: auto;
+    font-size: 9px;
+    line-height: 1.5;
+  }
+  .coach-msg {
+    margin-bottom: 6px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    border-left: 2px solid #a78bfa;
+    background: rgba(167,139,250,0.05);
+  }
+  .coach-msg.user {
+    border-left-color: #48f;
+    background: rgba(72,136,255,0.05);
+  }
+  .coach-msg .coach-gen { font-size: 8px; color: #555; }
+  .coach-msg .coach-text { color: #ccc; }
+  .coach-inactive { color: #333; font-size: 9px; padding: 8px; text-align: center; }
+  .coach-input-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .coach-input-row input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 3px;
+    color: #ccc;
+    font-family: monospace;
+    font-size: 9px;
+    padding: 4px 8px;
+    outline: none;
+  }
+  .coach-input-row input:focus { border-color: #a78bfa; }
+  .coach-input-row button {
+    width: auto;
+    padding: 4px 10px;
+    font-size: 9px;
+    margin: 0;
+    border-color: #a78bfa;
+    color: #a78bfa;
+  }
+  .coach-input-row button:hover { background: rgba(167,139,250,0.1); }
+  .coach-input-row button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* LLM Settings Modal */
+  .llm-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .llm-modal-overlay.open { display: flex; }
+  .llm-modal {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 16px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .llm-modal h3 {
+    color: #0f8;
+    font-size: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .llm-modal h3 button {
+    width: auto;
+    padding: 2px 8px;
+    font-size: 10px;
+    margin: 0;
+    border-color: #555;
+    color: #555;
+  }
+  .llm-modal label {
+    color: #888;
+    font-size: 9px;
+    margin-top: 8px;
+  }
+  .llm-modal textarea {
+    width: 100%;
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 3px;
+    color: #ccc;
+    font-family: monospace;
+    font-size: 9px;
+    padding: 6px 8px;
+    outline: none;
+    resize: vertical;
+  }
+  .llm-modal textarea:focus { border-color: #0f8; }
+  .llm-modal select, .llm-modal input[type="number"] {
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 3px;
+    color: #ccc;
+    font-family: monospace;
+    font-size: 9px;
+    padding: 4px 6px;
+    outline: none;
+  }
+  .llm-modal .hint {
+    font-size: 8px;
+    color: #444;
+    margin-top: 2px;
+  }
+  .llm-modal .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .llm-modal .modal-actions button {
+    flex: 1;
+  }
 </style>
 </head>
 <body>
@@ -316,6 +505,68 @@
   </table>
 </div>
 
+<!-- AI Coach -->
+<div class="coach-container">
+  <div class="coach-header">
+    <div class="label">AI COACH</div>
+    <div class="llm-config">
+      <span style="font-size:9px">🧠</span>
+      <input id="llm-endpoint" type="text" placeholder="http://localhost:11434" onchange="saveLLMEndpoint()" onblur="saveLLMEndpoint()">
+      <div class="llm-status-dot" id="llm-status-dot" onclick="checkLLMStatus()" title="Click to test connection"></div>
+    </div>
+    <button class="coach-gear" onclick="openLLMSettings()">SETTINGS</button>
+  </div>
+  <div id="coach-panel">
+    <div class="coach-inactive">Set LLM endpoint to enable AI Coach</div>
+  </div>
+  <div class="coach-input-row">
+    <input id="coach-input" type="text" placeholder="Ask about the evolution..." onkeydown="if(event.key==='Enter')sendCoachQuery()">
+    <button id="coach-send-btn" onclick="sendCoachQuery()" disabled>ASK</button>
+  </div>
+</div>
+
+<!-- LLM Settings Modal -->
+<div class="llm-modal-overlay" id="llm-modal" onclick="if(event.target===this)closeLLMSettings()">
+  <div class="llm-modal">
+    <h3>🧠 LLM Settings <button onclick="closeLLMSettings()">CLOSE</button></h3>
+
+    <label>SYSTEM PROMPT</label>
+    <textarea id="llm-system-prompt" rows="5"></textarea>
+    <div class="hint">Instructions for the AI coach persona</div>
+
+    <label>USER PROMPT TEMPLATE</label>
+    <textarea id="llm-user-prompt" rows="3"></textarea>
+    <div class="hint">Use {stats} for evolution stats. Applied on auto-analysis.</div>
+
+    <label>MODEL</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <select id="llm-model-select" style="flex:1">
+        <option value="">Auto (default)</option>
+      </select>
+      <button onclick="fetchLLMModels()" style="width:auto;padding:4px 8px;font-size:9px;margin:0;border-color:#555;color:#555">REFRESH</button>
+    </div>
+    <div class="hint">Select model from endpoint. Click REFRESH to fetch available models.</div>
+
+    <label>MAX TOKENS</label>
+    <input id="llm-max-tokens" type="number" min="50" max="2000" style="width:80px">
+
+    <label>COACH INTERVAL</label>
+    <select id="llm-coach-interval">
+      <option value="0">Off (manual only)</option>
+      <option value="10">Every 10 gens</option>
+      <option value="25" selected>Every 25 gens</option>
+      <option value="50">Every 50 gens</option>
+      <option value="100">Every 100 gens</option>
+    </select>
+    <div class="hint">How often to auto-send stats to LLM for analysis</div>
+
+    <div class="modal-actions">
+      <button onclick="saveLLMSettings()" style="border-color:#0f8;color:#0f8">SAVE</button>
+      <button onclick="resetLLMSettings()" style="border-color:#f55;color:#f55">RESET DEFAULTS</button>
+    </div>
+  </div>
+</div>
+
 <!-- Log Panel -->
 <div class="log-container">
   <div class="log-header">
@@ -366,12 +617,28 @@ function connect() {
     document.getElementById('connection').style.color = '#f55';
     setTimeout(connect, 2000);
   };
+  // Throttle rendering: buffer latest state/graph, draw on rAF
+  let pendingState = null;
+  let pendingGraph = null;
+  let rafScheduled = false;
+
+  function scheduleRender() {
+    if (rafScheduled) return;
+    rafScheduled = true;
+    requestAnimationFrame(() => {
+      rafScheduled = false;
+      if (pendingState) { drawState(pendingState); pendingState = null; }
+      if (pendingGraph) { scores = pendingGraph; drawGraph(); pendingGraph = null; }
+    });
+  }
+
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.type === 'state') drawState(msg);
-    else if (msg.type === 'graph') { scores = msg.scores; drawGraph(); }
+    if (msg.type === 'state') { pendingState = msg; scheduleRender(); }
+    else if (msg.type === 'graph') { pendingGraph = msg.scores; scheduleRender(); }
     else if (msg.type === 'log') addLog(msg.timestamp, msg.message, msg.kind);
     else if (msg.type === 'leaderboard') renderLeaderboard(msg.entries);
+    else if (msg.type === 'coach_stats') handleCoachStats(msg.summary, msg.gen);
   };
 }
 connect();
@@ -885,6 +1152,313 @@ fetchBackendInfo();
 // Draw empty state
 gx.fillStyle='#0a0a0a'; gx.fillRect(0,0,360,360);
 nx.fillStyle='#0a0a0a'; nx.fillRect(0,0,nnC.width,nnC.height);
+
+// ── LLM AI Coach ──────────────────────────────────────────
+
+const LLM_DEFAULT_SYSTEM = `You are an AI coach for a neuroevolution snake AI. Rules:
+- Reply with ONLY your analysis. No thinking, no reasoning, no meta-commentary.
+- Maximum 2-3 sentences. Never exceed 4 sentences.
+- Do NOT explain your process. Do NOT say "I need data" or "let me analyze".
+- Be direct: state what you observe, what pattern it indicates, and one actionable suggestion.
+- Use technical language: convergence, plateau, breakthrough, diversity loss, elitism pressure, exploration vs exploitation.
+- If given stats, analyze them. If asked a question, answer it directly.
+- Never use bullet points, numbered lists, or headers. Plain sentences only.`;
+
+const LLM_DEFAULT_USER = `{stats}\n\nGive your analysis in 2-3 plain sentences. No headers, no lists, no thinking.`;
+
+const LLM_DEFAULT_MAX_TOKENS = 300;
+
+function getLLMEndpoint() { return (localStorage.getItem('snake-ai-llm-endpoint') || '').trim(); }
+function getLLMSystemPrompt() { return localStorage.getItem('snake-ai-llm-system') || LLM_DEFAULT_SYSTEM; }
+function getLLMUserTemplate() { return localStorage.getItem('snake-ai-llm-user') || LLM_DEFAULT_USER; }
+function getLLMMaxTokens() { return parseInt(localStorage.getItem('snake-ai-llm-max-tokens') || LLM_DEFAULT_MAX_TOKENS); }
+function getLLMModel() { return localStorage.getItem('snake-ai-llm-model') || ''; }
+function getCoachInterval() { return parseInt(localStorage.getItem('snake-ai-coach-interval') || '25'); }
+
+// Initialize endpoint input from localStorage
+const llmEndpointEl = document.getElementById('llm-endpoint');
+llmEndpointEl.value = getLLMEndpoint();
+if (getLLMEndpoint()) checkLLMStatus();
+
+// Send coach interval to server on connect
+function sendCoachInterval() {
+  const interval = getCoachInterval();
+  send({type: 'coach_interval', gens: interval});
+}
+// Re-send on WebSocket reconnect
+const origOnOpen = ws ? ws.onopen : null;
+// We'll send it after connect establishes
+setTimeout(sendCoachInterval, 1000);
+
+function saveLLMEndpoint() {
+  const val = llmEndpointEl.value.trim();
+  localStorage.setItem('snake-ai-llm-endpoint', val);
+  if (val) {
+    checkLLMStatus();
+    updateCoachPanel();
+  } else {
+    document.getElementById('llm-status-dot').className = 'llm-status-dot';
+    updateCoachPanel();
+  }
+}
+
+async function checkLLMStatus() {
+  const endpoint = getLLMEndpoint();
+  const dot = document.getElementById('llm-status-dot');
+  if (!endpoint) { dot.className = 'llm-status-dot'; return; }
+
+  dot.className = 'llm-status-dot checking';
+  try {
+    const res = await fetch('/api/llm/models', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({endpoint}),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      dot.className = 'llm-status-dot online';
+      document.getElementById('coach-send-btn').disabled = false;
+    } else {
+      dot.className = 'llm-status-dot offline';
+    }
+  } catch {
+    dot.className = 'llm-status-dot offline';
+  }
+}
+
+function updateCoachPanel() {
+  const panel = document.getElementById('coach-panel');
+  const endpoint = getLLMEndpoint();
+  const btn = document.getElementById('coach-send-btn');
+  if (!endpoint) {
+    if (!panel.querySelector('.coach-msg')) {
+      panel.innerHTML = '<div class="coach-inactive">Set LLM endpoint to enable AI Coach</div>';
+    }
+    btn.disabled = true;
+  } else {
+    if (panel.querySelector('.coach-inactive')) {
+      panel.innerHTML = '<div class="coach-inactive">AI Coach ready. Waiting for stats...</div>';
+    }
+    btn.disabled = false;
+  }
+}
+
+let lastCoachStats = '';
+let coachBusy = false;
+
+async function callLLM(messages) {
+  const endpoint = getLLMEndpoint();
+  if (!endpoint) return null;
+
+  const body = {
+    endpoint,
+    messages,
+    max_tokens: getLLMMaxTokens(),
+  };
+  const model = getLLMModel();
+  if (model) body.model = model;
+
+  try {
+    const res = await fetch('/api/llm/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(65000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || data.raw || null;
+  } catch {
+    return null;
+  }
+}
+
+function addCoachMessage(text, gen, isUser) {
+  const panel = document.getElementById('coach-panel');
+  // Remove inactive placeholder
+  const inactive = panel.querySelector('.coach-inactive');
+  if (inactive) inactive.remove();
+
+  const div = document.createElement('div');
+  div.className = 'coach-msg' + (isUser ? ' user' : '');
+  const genLabel = gen ? `<span class="coach-gen">Gen ${gen}</span> ` : '';
+  const prefix = isUser ? '<span class="coach-gen">You:</span> ' : genLabel;
+  div.innerHTML = `${prefix}<span class="coach-text">${escHtml(text)}</span>`;
+  panel.appendChild(div);
+  // Cap at 50 messages
+  while (panel.querySelectorAll('.coach-msg').length > 50) {
+    panel.querySelector('.coach-msg').remove();
+  }
+  panel.scrollTop = panel.scrollHeight;
+}
+
+// Strip thinking blocks, headers, bullets, and excessive verbosity from LLM output
+function cleanLLMResponse(text) {
+  if (!text) return text;
+  let cleaned = text;
+  // Remove <think>...</think> or <thinking>...</thinking> blocks
+  cleaned = cleaned.replace(/<think(?:ing)?>\s*[\s\S]*?<\/think(?:ing)?>/gi, '');
+  // Remove "Thinking Process:" or "## Analysis" style headers
+  cleaned = cleaned.replace(/^(?:thinking\s*process|analysis|response|reasoning|answer|draft|critique|attempt)\s*[:\d.]*\s*/gim, '');
+  // Remove markdown headers
+  cleaned = cleaned.replace(/^#{1,4}\s+.*$/gm, '');
+  // Remove numbered list prefixes
+  cleaned = cleaned.replace(/^\d+\.\s+\*\*.*?\*\*:?\s*/gm, '');
+  // Remove bold markdown
+  cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '$1');
+  // Remove bullet points
+  cleaned = cleaned.replace(/^[\s]*[-*•]\s+/gm, '');
+  // Collapse multiple newlines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  // Trim
+  cleaned = cleaned.trim();
+  // If still too long (>500 chars), truncate to last complete sentence within limit
+  if (cleaned.length > 500) {
+    const truncated = cleaned.substring(0, 500);
+    const lastPeriod = truncated.lastIndexOf('.');
+    if (lastPeriod > 100) cleaned = truncated.substring(0, lastPeriod + 1);
+    else cleaned = truncated + '...';
+  }
+  return cleaned;
+}
+
+async function handleCoachStats(summary, gen) {
+  lastCoachStats = summary;
+  const endpoint = getLLMEndpoint();
+  if (!endpoint || coachBusy) return;
+
+  coachBusy = true;
+  addCoachMessage('Analyzing gen ' + gen + '...', gen, false);
+  const thinkingMsg = document.getElementById('coach-panel').lastElementChild;
+  thinkingMsg.style.opacity = '0.4';
+
+  const userPrompt = getLLMUserTemplate().replace('{stats}', summary);
+  const messages = [
+    {role: 'system', content: getLLMSystemPrompt()},
+    {role: 'user', content: userPrompt},
+  ];
+
+  try {
+    const response = await callLLM(messages);
+    // Remove thinking indicator
+    if (thinkingMsg && thinkingMsg.parentNode) thinkingMsg.remove();
+    if (response) {
+      addCoachMessage(cleanLLMResponse(response), gen, false);
+    } else {
+      addCoachMessage('No response from LLM.', gen, false);
+    }
+  } catch (e) {
+    if (thinkingMsg && thinkingMsg.parentNode) thinkingMsg.remove();
+    addCoachMessage('LLM error: ' + e.message, gen, false);
+  }
+  coachBusy = false;
+}
+
+async function sendCoachQuery() {
+  const input = document.getElementById('coach-input');
+  const question = input.value.trim();
+  if (!question || coachBusy) return;
+
+  const endpoint = getLLMEndpoint();
+  if (!endpoint) return;
+
+  addCoachMessage(question, null, true);
+  input.value = '';
+
+  coachBusy = true;
+  document.getElementById('coach-send-btn').disabled = true;
+
+  // Build context with latest stats
+  const context = lastCoachStats
+    ? `Current evolution stats:\n${lastCoachStats}\n\nUser question: ${question}`
+    : question;
+
+  const messages = [
+    {role: 'system', content: getLLMSystemPrompt()},
+    {role: 'user', content: context},
+  ];
+
+  const response = await callLLM(messages);
+  coachBusy = false;
+  document.getElementById('coach-send-btn').disabled = false;
+
+  if (response) {
+    addCoachMessage(cleanLLMResponse(response), null, false);
+  } else {
+    addCoachMessage('Failed to get response. Check endpoint connection.', null, false);
+  }
+}
+
+// ── LLM Settings Modal ───────────────────────────────────
+
+async function fetchLLMModels() {
+  const endpoint = getLLMEndpoint();
+  if (!endpoint) return;
+
+  const select = document.getElementById('llm-model-select');
+  const saved = getLLMModel();
+
+  try {
+    const res = await fetch('/api/llm/models', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({endpoint}),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const models = (data.data || []).map(m => m.id);
+
+    select.innerHTML = '<option value="">Auto (default)</option>';
+    models.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      if (id === saved) opt.selected = true;
+      select.appendChild(opt);
+    });
+  } catch {}
+}
+
+function openLLMSettings() {
+  document.getElementById('llm-system-prompt').value = getLLMSystemPrompt();
+  document.getElementById('llm-user-prompt').value = getLLMUserTemplate();
+  document.getElementById('llm-max-tokens').value = getLLMMaxTokens();
+  document.getElementById('llm-coach-interval').value = getCoachInterval();
+  document.getElementById('llm-modal').classList.add('open');
+  fetchLLMModels();
+}
+
+function closeLLMSettings() {
+  document.getElementById('llm-modal').classList.remove('open');
+}
+
+function saveLLMSettings() {
+  localStorage.setItem('snake-ai-llm-system', document.getElementById('llm-system-prompt').value);
+  localStorage.setItem('snake-ai-llm-user', document.getElementById('llm-user-prompt').value);
+  localStorage.setItem('snake-ai-llm-max-tokens', document.getElementById('llm-max-tokens').value);
+  localStorage.setItem('snake-ai-llm-model', document.getElementById('llm-model-select').value);
+  const interval = parseInt(document.getElementById('llm-coach-interval').value);
+  localStorage.setItem('snake-ai-coach-interval', interval);
+  send({type: 'coach_interval', gens: interval});
+  closeLLMSettings();
+}
+
+function resetLLMSettings() {
+  localStorage.removeItem('snake-ai-llm-system');
+  localStorage.removeItem('snake-ai-llm-user');
+  localStorage.removeItem('snake-ai-llm-max-tokens');
+  localStorage.removeItem('snake-ai-llm-model');
+  localStorage.removeItem('snake-ai-coach-interval');
+  // Reload modal fields
+  document.getElementById('llm-system-prompt').value = LLM_DEFAULT_SYSTEM;
+  document.getElementById('llm-user-prompt').value = LLM_DEFAULT_USER;
+  document.getElementById('llm-max-tokens').value = LLM_DEFAULT_MAX_TOKENS;
+  document.getElementById('llm-model-select').value = '';
+  document.getElementById('llm-coach-interval').value = '25';
+  send({type: 'coach_interval', gens: 25});
+}
+
 </script>
 </body>
 </html>

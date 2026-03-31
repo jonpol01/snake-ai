@@ -1,6 +1,7 @@
 mod gpu;
 mod gui;
 mod leaderboard;
+mod llm;
 mod neural_net;
 mod population;
 mod protocol;
@@ -14,7 +15,7 @@ use std::time::Instant;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::WebSocketUpgrade;
 use axum::response::{Html, IntoResponse};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -27,6 +28,14 @@ use shared::{LogKind, SharedState};
 use stage::StageKind;
 
 fn main() {
+    // Set working directory to the binary's location so checkpoint.json / leaderboard.json
+    // are found regardless of how the app is launched (double-click, terminal, etc.)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let _ = std::env::set_current_dir(dir);
+        }
+    }
+
     let shared = Arc::new(SharedState::new());
 
     // Build tokio runtime in a background thread (egui needs the main thread on macOS)
@@ -71,7 +80,7 @@ async fn run_backend(
     let gpu = Arc::new(gpu);
 
     // Broadcast channel for WebSocket state updates
-    let (state_tx, _) = broadcast::channel::<String>(16);
+    let (state_tx, _) = broadcast::channel::<String>(64);
     let state_tx = Arc::new(state_tx);
 
     // Start sim loop
@@ -115,6 +124,8 @@ async fn run_backend(
             }),
         )
         .route("/leaderboard", get(get_leaderboard))
+        .route("/api/llm/chat", post(llm::llm_chat))
+        .route("/api/llm/models", post(llm::llm_models))
         .route("/", get(serve_index));
 
     let addr = "0.0.0.0:3030";
@@ -207,6 +218,8 @@ async fn sim_loop(
     let mut lb = leaderboard::Leaderboard::load();
     let mut speed: u32 = 10;
     let mut stage_kind = StageKind::Classic;
+    let mut coach_interval: u32 = 0; // 0 = disabled, N = every N generations
+    let mut last_coach_gen: u32 = 0;
     let mut frame_interval = tokio::time::interval(std::time::Duration::from_millis(33));
 
     // Helper: push log to both SharedState and WebSocket
@@ -244,9 +257,11 @@ async fn sim_loop(
                         let best_dead = pop.snakes.iter().enumerate()
                             .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
                         if let Some((idx, best)) = best_dead {
+                            // Include this gen's best in the all-time display
+                            let current_best = pop.best_scores.iter().copied().max().unwrap_or(0).max(best.score);
                             let msg = ServerMsg::State {
                                 gen: pop.gen,
-                                best_score: pop.best_scores.iter().copied().max().unwrap_or(0),
+                                best_score: current_best,
                                 alive: 0,
                                 total: population::POP_SIZE,
                                 gpu_ms: pop.last_compute_ms,
@@ -271,7 +286,8 @@ async fn sim_loop(
                         pop.calculate_fitness();
 
                         let gen_best = pop.snakes.iter().map(|s| s.score).max().unwrap_or(0);
-                        let all_time_best = pop.best_scores.iter().copied().max().unwrap_or(0);
+                        // Use the true all-time best including this generation
+                        let all_time_best = pop.best_scores.iter().copied().max().unwrap_or(0).max(gen_best);
 
                         // Log generation completion
                         log(&shared, &state_tx,
@@ -325,11 +341,19 @@ async fn sim_loop(
                             }
                         }
 
+                        let is_new_record = gen_best > pop.best_scores.iter().copied().max().unwrap_or(0);
                         pop.natural_selection();
 
+                        // Force checkpoint on new record so we never lose a best score
+                        if is_new_record {
+                            pop.save_checkpoint();
+                            log(&shared, &state_tx,
+                                format!("Record checkpoint saved (score {})", gen_best),
+                                LogKind::Done,
+                            );
+                        }
                         // Auto-save checkpoint every 10 generations
-                        // Only save if we have meaningful progress (don't overwrite good brains with fresh randoms)
-                        if pop.gen % 10 == 0 && pop.gen >= 10 {
+                        else if pop.gen % 10 == 0 && pop.gen >= 10 {
                             pop.save_checkpoint();
                             log(&shared, &state_tx,
                                 format!("Checkpoint saved (gen {})", pop.gen),
@@ -342,6 +366,60 @@ async fn sim_loop(
                         };
                         if let Ok(json) = serde_json::to_string(&graph_msg) {
                             let _ = state_tx.send(json);
+                        }
+
+                        // Send coach stats every N generations (browser-side calls LLM)
+                        if coach_interval > 0 && pop.gen >= last_coach_gen + coach_interval {
+                            last_coach_gen = pop.gen;
+
+                            // Build stats summary for LLM analysis
+                            let recent_scores: Vec<u32> = pop.best_scores.iter()
+                                .rev().take(20).copied().collect();
+                            let avg_recent = if recent_scores.is_empty() { 0.0 }
+                                else { recent_scores.iter().sum::<u32>() as f64 / recent_scores.len() as f64 };
+                            let all_time = pop.best_scores.iter().copied().max().unwrap_or(0);
+                            let alive = pop.alive_count();
+                            let avg_fitness = pop.snakes.iter().map(|s| s.fitness).sum::<f64>()
+                                / pop.snakes.len() as f64;
+                            let max_fitness = pop.snakes.iter().map(|s| s.fitness)
+                                .fold(0.0_f64, f64::max);
+                            let stage_label = match pop.stage.kind {
+                                stage::StageKind::Classic => "Classic",
+                                stage::StageKind::Warehouse => "Warehouse",
+                                stage::StageKind::Mixed => "Mixed",
+                            };
+
+                            let summary = format!(
+                                "Generation: {}\n\
+                                 Stage: {}\n\
+                                 Population: {}\n\
+                                 Current gen best score: {}\n\
+                                 All-time best score: {}\n\
+                                 Average score (last 20 gens): {:.1}\n\
+                                 Recent scores (last 20 gens): {:?}\n\
+                                 Alive this gen: {}/{}\n\
+                                 Average fitness: {:.1}\n\
+                                 Max fitness: {:.1}\n\
+                                 GPU compute: {:.2}ms\n\
+                                 Mutation rate: {:.1}%\n\
+                                 Total generations trained: {}",
+                                pop.gen, stage_label, population::POP_SIZE,
+                                gen_best, all_time,
+                                avg_recent, recent_scores,
+                                alive, population::POP_SIZE,
+                                avg_fitness, max_fitness,
+                                pop.last_compute_ms,
+                                neural_net::MUTATION_RATE * 100.0,
+                                pop.best_scores.len(),
+                            );
+
+                            let coach_msg = ServerMsg::CoachStats {
+                                summary,
+                                gen: pop.gen,
+                            };
+                            if let Ok(json) = serde_json::to_string(&coach_msg) {
+                                let _ = state_tx.send(json);
+                            }
                         }
                     }
 
@@ -400,7 +478,14 @@ async fn sim_loop(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     ClientMsg::Start => {
-                        if let Some(restored) = Population::from_checkpoint(stage_kind) {
+                        if let Some(mut restored) = Population::from_checkpoint(stage_kind) {
+                            // Reconcile best_scores with leaderboard (checkpoint may miss scores between saves)
+                            let lb_max = lb.entries.iter().map(|e| e.score).max().unwrap_or(0);
+                            let cp_max = restored.best_scores.iter().copied().max().unwrap_or(0);
+                            if lb_max > cp_max {
+                                restored.best_scores.push(lb_max);
+                            }
+
                             let gen = restored.gen;
                             let best = restored.best_scores.iter().copied().max().unwrap_or(0);
                             // Send graph data immediately
@@ -472,6 +557,14 @@ async fn sim_loop(
                     }
                     ClientMsg::SetPlayer { .. } => {
                         // Player naming is now automatic (AMR #N / Snake #N)
+                    }
+                    ClientMsg::CoachInterval { gens } => {
+                        coach_interval = gens;
+                        last_coach_gen = population.as_ref().map_or(0, |p| p.gen);
+                        let label = if gens == 0 { "disabled".into() } else { format!("every {} gens", gens) };
+                        log(&shared, &state_tx,
+                            format!("AI Coach: {}", label),
+                            LogKind::Info);
                     }
                 }
             }
