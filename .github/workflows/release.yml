@@ -18,7 +18,7 @@ jobs:
             name: snake-ai-macos-arm64
             ext: ""
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             name: snake-ai-macos-x86_64
             ext: ""
           - target: x86_64-unknown-linux-gnu
