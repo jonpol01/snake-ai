@@ -1,5 +1,6 @@
 mod gpu;
 mod gui;
+mod leaderboard;
 mod neural_net;
 mod population;
 mod protocol;
@@ -113,6 +114,7 @@ async fn run_backend(
                 }
             }),
         )
+        .route("/leaderboard", get(get_leaderboard))
         .route("/", get(serve_index));
 
     let addr = "0.0.0.0:3030";
@@ -148,6 +150,11 @@ async fn get_info(shared: Arc<SharedState>) -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({
         "backend": backend,
     }))
+}
+
+async fn get_leaderboard() -> axum::Json<serde_json::Value> {
+    let lb = leaderboard::Leaderboard::load();
+    axum::Json(serde_json::json!(lb.entries))
 }
 
 async fn serve_index() -> Html<&'static str> {
@@ -197,6 +204,7 @@ async fn sim_loop(
 ) {
     let mut population: Option<Population> = None;
     let mut running = false;
+    let mut lb = leaderboard::Leaderboard::load();
     let mut speed: u32 = 10;
     let mut stage_kind = StageKind::Classic;
     let mut frame_interval = tokio::time::interval(std::time::Duration::from_millis(33));
@@ -279,6 +287,42 @@ async fn sim_loop(
                                 format!("New all-time best score: {}!", gen_best),
                                 LogKind::Done,
                             );
+
+                            // Record to leaderboard
+                            let champion = pop.snakes.iter().enumerate()
+                                .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
+                            if let Some((champ_idx, champ)) = champion {
+                                let stage_name = match pop.stage.kind {
+                                    stage::StageKind::Classic => "Classic",
+                                    stage::StageKind::Warehouse => "Warehouse",
+                                    stage::StageKind::Mixed => "Mixed",
+                                };
+                                // Use agent ID as the player name
+                                let agent_name = match pop.stage.kind {
+                                    stage::StageKind::Warehouse => format!("AMR #{}", champ_idx + 1),
+                                    _ => format!("Snake #{}", champ_idx + 1),
+                                };
+                                let entry = leaderboard::LeaderboardEntry {
+                                    rank: 0,
+                                    player: agent_name,
+                                    score: gen_best,
+                                    gen: pop.gen,
+                                    stage: stage_name.to_string(),
+                                    lifetime: champ.lifetime,
+                                    fitness: champ.fitness,
+                                    mutation_rate: neural_net::MUTATION_RATE,
+                                    population_size: population::POP_SIZE,
+                                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                };
+                                lb.add_entry(entry);
+                                lb.save();
+
+                                // Broadcast to browser
+                                let lb_msg = ServerMsg::Leaderboard { entries: lb.entries.clone() };
+                                if let Ok(json) = serde_json::to_string(&lb_msg) {
+                                    let _ = state_tx.send(json);
+                                }
+                            }
                         }
 
                         pop.natural_selection();
@@ -425,6 +469,9 @@ async fn sim_loop(
                                 "Stage layout regenerated".into(),
                                 LogKind::Phase);
                         }
+                    }
+                    ClientMsg::SetPlayer { .. } => {
+                        // Player naming is now automatic (AMR #N / Snake #N)
                     }
                 }
             }
