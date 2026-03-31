@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::leaderboard::LeaderboardEntry;
 use crate::neural_net::NeuralNet;
 use crate::snake::Pos;
 
@@ -35,7 +36,12 @@ pub enum ServerMsg {
         message: String,
         kind: String,
     },
+    #[serde(rename = "leaderboard")]
+    Leaderboard {
+        entries: Vec<LeaderboardEntry>,
+    },
 }
+
 
 /// Client -> Server
 #[derive(Deserialize)]
@@ -53,4 +59,6 @@ pub enum ClientMsg {
     Stage { value: String },
     #[serde(rename = "regenerate")]
     Regenerate,
+    #[serde(rename = "set_player")]
+    SetPlayer { name: String },
 }
