@@ -157,8 +157,26 @@ impl Population {
         }
     }
 
-    /// Save checkpoint to disk
+    /// Save checkpoint to disk.
+    /// Safety: never overwrites a higher-generation checkpoint with a lower one.
     pub fn save_checkpoint(&self) {
+        // Guard: don't overwrite a better checkpoint with a fresh/early one
+        if Path::new(CHECKPOINT_PATH).exists() {
+            if let Ok(data) = std::fs::read_to_string(CHECKPOINT_PATH) {
+                if let Ok(existing) = serde_json::from_str::<Checkpoint>(&data) {
+                    let existing_best = existing.best_scores.iter().copied().max().unwrap_or(0);
+                    let our_best = self.best_scores.iter().copied().max().unwrap_or(0);
+                    if existing.gen > self.gen + 10 && existing_best > our_best {
+                        eprintln!(
+                            "WARNING: Refusing to overwrite checkpoint (gen {}, best {}) with inferior data (gen {}, best {})",
+                            existing.gen, existing_best, self.gen, our_best
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
         let checkpoint = Checkpoint {
             version: CHECKPOINT_VERSION,
             gen: self.gen,
