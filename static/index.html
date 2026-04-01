@@ -567,6 +567,19 @@
   </div>
 </div>
 
+<!-- Screenshot Modal -->
+<div class="llm-modal-overlay" id="screenshot-modal" onclick="if(event.target===this)closeScreenshot()">
+  <div class="llm-modal" style="max-width:420px;text-align:center">
+    <h3 id="screenshot-title" style="justify-content:center">
+      <button onclick="closeScreenshot()" style="position:absolute;right:16px;top:16px">CLOSE</button>
+    </h3>
+    <img id="screenshot-img" style="width:100%;border-radius:4px;border:1px solid #333;margin:8px 0" alt="Death screenshot">
+    <div style="margin-top:8px">
+      <a id="screenshot-download" download style="color:#0f8;font-size:9px;font-family:monospace;text-decoration:none;border:1px solid #0f8;padding:4px 12px;border-radius:3px">DOWNLOAD PNG</a>
+    </div>
+  </div>
+</div>
+
 <!-- Log Panel -->
 <div class="log-container">
   <div class="log-header">
@@ -689,9 +702,11 @@ function renderLeaderboard(entries) {
   tbody.innerHTML = entries.map((e, i) => {
     const cls = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
     const medal = i === 0 ? '&#127942;' : i === 1 ? '&#129352;' : i === 2 ? '&#129353;' : e.rank;
-    return `<tr class="${cls}">
+    const clickable = e.screenshot ? ` style="cursor:pointer" onclick="showScreenshot('${escHtml(e.screenshot)}', ${e.score}, ${e.gen}, '${escHtml(e.player)}')" title="Click to view death screenshot"` : '';
+    const imgIcon = e.screenshot ? ' &#128247;' : '';
+    return `<tr class="${cls}"${clickable}>
       <td class="rank">${medal}</td>
-      <td>${escHtml(e.player)}</td>
+      <td>${escHtml(e.player)}${imgIcon}</td>
       <td class="score">${e.score}</td>
       <td>${e.gen}</td>
       <td>${e.stage}</td>
@@ -702,8 +717,24 @@ function renderLeaderboard(entries) {
   }).join('');
 }
 
+function showScreenshot(filename, score, gen, player) {
+  const url = '/screenshots/' + filename;
+  document.getElementById('screenshot-title').innerHTML =
+    `<span style="color:#ffd700">Score ${score}</span> <span style="color:#888;font-weight:normal;font-size:10px">${player} &middot; Gen ${gen}</span>` +
+    '<button onclick="closeScreenshot()" style="position:absolute;right:16px;top:16px">CLOSE</button>';
+  document.getElementById('screenshot-img').src = url;
+  document.getElementById('screenshot-download').href = url;
+  document.getElementById('screenshot-download').download = filename;
+  document.getElementById('screenshot-modal').classList.add('open');
+}
+
+function closeScreenshot() {
+  document.getElementById('screenshot-modal').classList.remove('open');
+}
+
 let deathAnim = null;
 let lastSnakeId = -1;
+let lastScreenshotScore = 0; // Track to avoid duplicate screenshots for same record
 
 function drawState(s) {
   document.getElementById('gen').textContent = s.gen;
@@ -871,6 +902,63 @@ function drawState(s) {
       gx.fillText(`Score: ${s.score}`, 180, 195);
       gx.restore();
     }
+  }
+
+  // ── Memorial screenshot for record-breaking deaths ──
+  if (isDead && s.score >= s.best_score && s.score > lastScreenshotScore && s.score > 1) {
+    lastScreenshotScore = s.score;
+
+    // Draw gold memorial banner on canvas
+    gx.save();
+    // Bottom banner
+    gx.fillStyle = 'rgba(0,0,0,0.75)';
+    gx.fillRect(0, 280, 360, 80);
+    // Gold top border
+    gx.fillStyle = '#ffd700';
+    gx.fillRect(0, 279, 360, 2);
+
+    gx.textAlign = 'center';
+    gx.textBaseline = 'middle';
+
+    // Title
+    gx.shadowColor = '#ffd700'; gx.shadowBlur = 8;
+    gx.fillStyle = '#ffd700';
+    gx.font = 'bold 14px monospace';
+    gx.fillText('NEW RECORD!', 180, 298);
+    gx.shadowBlur = 0;
+
+    // Stats
+    const prefix = isWarehouse ? 'AMR' : 'Snake';
+    gx.fillStyle = '#ccc';
+    gx.font = '10px monospace';
+    gx.fillText(`${prefix} #${s.snake_id + 1}  |  Score: ${s.score}  |  Gen: ${s.gen}`, 180, 318);
+
+    // Timestamp
+    gx.fillStyle = '#666';
+    gx.font = '8px monospace';
+    const now = new Date();
+    const ts = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+    gx.fillText(ts, 180, 338);
+
+    // Stage label
+    const stageName = isWarehouse ? 'Warehouse' : (s.obstacles && s.obstacles.length > 0 ? 'Mixed' : 'Classic');
+    gx.fillStyle = '#888';
+    gx.fillText(stageName + ' Stage', 180, 352);
+
+    gx.restore();
+
+    // Upload screenshot to server and link to leaderboard entry
+    const dataUrl = gameC.toDataURL('image/png');
+    fetch('/api/screenshot', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({score: s.score, gen: s.gen, image: dataUrl}),
+    }).then(r => r.json()).then(res => {
+      if (res.ok) {
+        // Refresh leaderboard to get screenshot links
+        fetch('/leaderboard').then(r => r.json()).then(entries => renderLeaderboard(entries));
+      }
+    }).catch(() => {});
   }
 
   drawNN(s.nn_weights, s.vision, s.decision);

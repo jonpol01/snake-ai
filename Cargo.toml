@@ -15,6 +15,7 @@ futures = "0.3"
 eframe = "0.31"
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"
 
 [profile.release]
 opt-level = 3

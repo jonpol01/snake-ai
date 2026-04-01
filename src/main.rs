@@ -16,6 +16,7 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::extract::WebSocketUpgrade;
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
+use axum::Json;
 use axum::Router;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -130,6 +131,8 @@ async fn run_backend(
             }),
         )
         .route("/leaderboard", get(get_leaderboard))
+        .route("/api/screenshot", post(upload_screenshot))
+        .route("/screenshots/{filename}", get(serve_screenshot))
         .route("/api/llm/chat", post(llm::llm_chat))
         .route("/api/llm/models", post(llm::llm_models))
         .route("/", get(serve_index));
@@ -172,6 +175,57 @@ async fn get_info(shared: Arc<SharedState>) -> axum::Json<serde_json::Value> {
 async fn get_leaderboard() -> axum::Json<serde_json::Value> {
     let lb = leaderboard::Leaderboard::load();
     axum::Json(serde_json::json!(lb.entries))
+}
+
+async fn upload_screenshot(
+    Json(body): Json<serde_json::Value>,
+) -> axum::Json<serde_json::Value> {
+    let score = body.get("score").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let gen = body.get("gen").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let data_url = body.get("image").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Parse base64 data URL: "data:image/png;base64,..."
+    let png_data = if let Some(b64) = data_url.strip_prefix("data:image/png;base64,") {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.decode(b64).ok()
+    } else {
+        None
+    };
+
+    if let Some(data) = png_data {
+        if let Some(filename) = leaderboard::save_screenshot(score, gen, &data) {
+            // Update leaderboard entry with screenshot filename
+            let mut lb = leaderboard::Leaderboard::load();
+            for entry in &mut lb.entries {
+                if entry.score == score && entry.gen == gen && entry.screenshot.is_none() {
+                    entry.screenshot = Some(filename.clone());
+                    break;
+                }
+            }
+            lb.save();
+            return axum::Json(serde_json::json!({"ok": true, "filename": filename}));
+        }
+    }
+
+    axum::Json(serde_json::json!({"ok": false, "error": "failed to save screenshot"}))
+}
+
+async fn serve_screenshot(
+    axum::extract::Path(filename): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Some(path) = leaderboard::screenshot_path(&filename) {
+        if let Ok(data) = std::fs::read(&path) {
+            return axum::response::Response::builder()
+                .header("Content-Type", "image/png")
+                .header("Cache-Control", "public, max-age=31536000")
+                .body(axum::body::Body::from(data))
+                .unwrap();
+        }
+    }
+    axum::response::Response::builder()
+        .status(404)
+        .body(axum::body::Body::from("not found"))
+        .unwrap()
 }
 
 async fn serve_index() -> Html<&'static str> {
@@ -339,6 +393,7 @@ async fn sim_loop(
                                     mutation_rate: neural_net::MUTATION_RATE,
                                     population_size: population::POP_SIZE,
                                     timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                    screenshot: None,
                                 };
                                 lb.add_entry(entry);
                                 lb.save();
@@ -493,6 +548,7 @@ async fn sim_loop(
                                 mutation_rate: neural_net::MUTATION_RATE,
                                 population_size: population::POP_SIZE,
                                 timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                screenshot: None,
                             };
                             lb.add_entry(entry);
                             lb.save();

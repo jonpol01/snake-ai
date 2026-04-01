@@ -3404,6 +3404,7 @@ name = "snake-ai"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base64",
  "bytemuck",
  "chrono",
  "eframe",
