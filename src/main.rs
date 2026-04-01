@@ -28,11 +28,17 @@ use shared::{LogKind, SharedState};
 use stage::StageKind;
 
 fn main() {
-    // Set working directory to the binary's location so checkpoint.json / leaderboard.json
-    // are found regardless of how the app is launched (double-click, terminal, etc.)
+    // Set working directory to the project root so checkpoint.json / leaderboard.json
+    // are always found regardless of how the app is launched (double-click, terminal, etc.)
+    // Walk up from the binary to find the directory containing Cargo.toml.
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let _ = std::env::set_current_dir(dir);
+        let mut dir = exe.parent().map(|p| p.to_path_buf());
+        while let Some(ref d) = dir {
+            if d.join("Cargo.toml").exists() {
+                let _ = std::env::set_current_dir(d);
+                break;
+            }
+            dir = d.parent().map(|p| p.to_path_buf());
         }
     }
 
@@ -348,6 +354,11 @@ async fn sim_loop(
                         let is_new_record = gen_best > pop.best_scores.iter().copied().max().unwrap_or(0);
                         pop.natural_selection();
 
+                        // Upload new generation's weights to GPU once (not every step)
+                        if let Some(ref g) = *gpu {
+                            g.upload_weights(&pop.snakes);
+                        }
+
                         // Force checkpoint on new record so we never lose a best score
                         if is_new_record {
                             pop.save_checkpoint();
@@ -449,9 +460,17 @@ async fn sim_loop(
                         let champion = pop.snakes.iter().enumerate()
                             .max_by(|(_, a), (_, b)| a.score.cmp(&b.score).then(a.lifetime.cmp(&b.lifetime)));
                         if let Some((champ_idx, champ)) = champion {
+                            // Compute fitness inline (calc_fitness hasn't run yet mid-gen)
+                            let lt = champ.lifetime as f64;
+                            let live_fitness = if champ.score < 10 {
+                                lt * 2.0f64.powi(champ.score as i32)
+                            } else {
+                                lt * 2.0f64.powi(10) * (champ.score as f64 - 9.0)
+                            };
+
                             // Update best brain for elitism
                             pop.best_brain = Some(champ.brain.clone());
-                            pop.best_fitness = champ.fitness;
+                            pop.best_fitness = live_fitness;
 
                             // Record to leaderboard immediately
                             let stage_name = match pop.stage.kind {
@@ -470,7 +489,7 @@ async fn sim_loop(
                                 gen: pop.gen,
                                 stage: stage_name.to_string(),
                                 lifetime: champ.lifetime,
-                                fitness: champ.fitness,
+                                fitness: live_fitness,
                                 mutation_rate: neural_net::MUTATION_RATE,
                                 population_size: population::POP_SIZE,
                                 timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -561,6 +580,10 @@ async fn sim_loop(
                             population = Some(Population::new(stage_kind));
                             log(&shared, &state_tx,"Evolution started — population: 2000".into(), LogKind::Phase);
                         }
+                        // Upload initial weights to GPU
+                        if let (Some(ref pop), Some(ref g)) = (&population, &*gpu) {
+                            g.upload_weights(&pop.snakes);
+                        }
                         running = true;
                         if let Ok(mut r) = shared.running.lock() { *r = true; }
                     }
@@ -600,6 +623,10 @@ async fn sim_loop(
                             }
                         } else {
                             population = Some(Population::new(stage_kind));
+                        }
+                        // Upload weights after stage switch
+                        if let (Some(ref pop), Some(ref g)) = (&population, &*gpu) {
+                            g.upload_weights(&pop.snakes);
                         }
                         running = true;
                         if let Ok(mut r) = shared.running.lock() { *r = true; }
