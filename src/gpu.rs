@@ -1,4 +1,5 @@
 use crate::neural_net::WEIGHTS_PER_SNAKE;
+use crate::population::POP_SIZE;
 use crate::snake::Snake;
 
 const SHADER: &str = r#"
@@ -61,8 +62,13 @@ pub struct GpuCompute {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
     adapter_name: String,
+    // Persistent buffers — allocated once, reused every step
+    weight_buf: wgpu::Buffer,
+    input_buf: wgpu::Buffer,
+    output_buf: wgpu::Buffer,
+    read_buf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
 }
 
 impl GpuCompute {
@@ -140,60 +146,42 @@ impl GpuCompute {
             cache: None,
         });
 
-        let info = adapter.get_info();
-        eprintln!("GPU initialized: {}", info.name);
-        eprintln!("  Backend: {:?}", info.backend);
-        eprintln!("  Device type: {:?}", info.device_type);
-        eprintln!("  Driver: {}", info.driver);
-        eprintln!("  Driver info: {}", info.driver_info);
+        // Pre-allocate persistent buffers for POP_SIZE snakes
+        let weight_size = (POP_SIZE * WEIGHTS_PER_SNAKE * 4) as u64;
+        let input_size = (POP_SIZE * 24 * 4) as u64;
+        let output_size = (POP_SIZE * 4 * 4) as u64;
 
-        Some(Self {
-            device,
-            queue,
-            pipeline,
-            bind_group_layout,
-            adapter_name: info.name,
-        })
-    }
+        let weight_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("weights"),
+            size: weight_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
-    pub async fn forward_pass(&self, snakes: &mut [Snake]) {
-        let n = snakes.len();
+        let input_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("inputs"),
+            size: input_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
-        // Pack weights and inputs
-        let mut all_weights = vec![0.0f32; n * WEIGHTS_PER_SNAKE];
-        let mut all_inputs = vec![0.0f32; n * 24];
-
-        for (s, snake) in snakes.iter().enumerate() {
-            if snake.dead {
-                continue;
-            }
-            snake
-                .brain
-                .pack_weights(&mut all_weights[s * WEIGHTS_PER_SNAKE..]);
-            all_inputs[s * 24..(s + 1) * 24].copy_from_slice(&snake.vision);
-        }
-
-        let weight_buf = self.create_storage_buffer(&all_weights);
-        let input_buf = self.create_storage_buffer(&all_inputs);
-
-        let output_size = (n * 4 * 4) as u64; // 4 floats * 4 bytes
-        let output_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let output_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("output"),
             size: output_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
-        let read_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let read_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
             size: output_size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("nn_bg"),
-            layout: &self.bind_group_layout,
+            layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -210,6 +198,52 @@ impl GpuCompute {
             ],
         });
 
+        let info = adapter.get_info();
+        eprintln!("GPU initialized: {}", info.name);
+        eprintln!("  Backend: {:?}", info.backend);
+        eprintln!("  Device type: {:?}", info.device_type);
+        eprintln!("  Driver: {}", info.driver);
+        eprintln!("  Driver info: {}", info.driver_info);
+
+        Some(Self {
+            device,
+            queue,
+            pipeline,
+            adapter_name: info.name,
+            weight_buf,
+            input_buf,
+            output_buf,
+            read_buf,
+            bind_group,
+        })
+    }
+
+    /// Upload all snake weights to GPU. Call once per generation (after natural_selection).
+    pub fn upload_weights(&self, snakes: &[Snake]) {
+        let n = snakes.len();
+        let mut all_weights = vec![0.0f32; n * WEIGHTS_PER_SNAKE];
+        for (s, snake) in snakes.iter().enumerate() {
+            snake.brain.pack_weights(&mut all_weights[s * WEIGHTS_PER_SNAKE..]);
+        }
+        self.queue.write_buffer(&self.weight_buf, 0, bytemuck::cast_slice(&all_weights));
+    }
+
+    /// Forward pass — only uploads vision inputs (weights already on GPU).
+    pub async fn forward_pass(&self, snakes: &mut [Snake]) {
+        let n = snakes.len();
+
+        // Pack only inputs (weights are already on GPU from upload_weights)
+        let mut all_inputs = vec![0.0f32; n * 24];
+        for (s, snake) in snakes.iter().enumerate() {
+            if snake.dead {
+                continue;
+            }
+            all_inputs[s * 24..(s + 1) * 24].copy_from_slice(&snake.vision);
+        }
+
+        // Write inputs to existing buffer (no allocation)
+        self.queue.write_buffer(&self.input_buf, 0, bytemuck::cast_slice(&all_inputs));
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -220,16 +254,15 @@ impl GpuCompute {
                 timestamp_writes: None,
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            // workgroup_size is 64, so dispatch ceil(n/64) workgroups
+            pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups(((n + 63) / 64) as u32, 1, 1);
         }
 
-        encoder.copy_buffer_to_buffer(&output_buf, 0, &read_buf, 0, output_size);
+        encoder.copy_buffer_to_buffer(&self.output_buf, 0, &self.read_buf, 0, (n * 4 * 4) as u64);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         // Read back results
-        let slice = read_buf.slice(..);
+        let slice = self.read_buf.slice(..);
         let (tx, rx) = futures::channel::oneshot::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
@@ -238,10 +271,8 @@ impl GpuCompute {
         rx.await.unwrap().unwrap();
 
         let data = slice.get_mapped_range();
-        let results: &[f32] =
-            bytemuck::cast_slice(&data);
+        let results: &[f32] = bytemuck::cast_slice(&data);
 
-        // Apply decisions
         for (s, snake) in snakes.iter_mut().enumerate() {
             if snake.dead {
                 continue;
@@ -252,17 +283,7 @@ impl GpuCompute {
         }
 
         drop(data);
-        read_buf.unmap();
-    }
-
-    fn create_storage_buffer(&self, data: &[f32]) -> wgpu::Buffer {
-        use wgpu::util::DeviceExt;
-        self.device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(data),
-                usage: wgpu::BufferUsages::STORAGE,
-            })
+        self.read_buf.unmap();
     }
 }
 
