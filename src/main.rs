@@ -3,6 +3,7 @@ mod gui;
 mod leaderboard;
 mod llm;
 mod neural_net;
+mod screenshot;
 mod population;
 mod protocol;
 mod shared;
@@ -16,7 +17,6 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::extract::WebSocketUpgrade;
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
-use axum::Json;
 use axum::Router;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -61,8 +61,19 @@ fn main() {
         });
     });
 
-    // Run GUI on main thread
-    gui::run(shared, cmd_tx, handle);
+    // Run GUI on main thread (or block headless if no display / --headless flag)
+    let headless = std::env::args().any(|a| a == "--headless")
+        || std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() && !cfg!(target_os = "macos");
+
+    if headless {
+        shared.push_log("Running in headless mode (no GUI) — use browser at http://localhost:3030".into(), LogKind::Info);
+        // Block the main thread forever (server runs in background thread)
+        loop {
+            std::thread::park();
+        }
+    } else {
+        gui::run(shared, cmd_tx, handle);
+    }
 }
 
 async fn run_backend(
@@ -131,7 +142,6 @@ async fn run_backend(
             }),
         )
         .route("/leaderboard", get(get_leaderboard))
-        .route("/api/screenshot", post(upload_screenshot))
         .route("/screenshots/{filename}", get(serve_screenshot))
         .route("/api/llm/chat", post(llm::llm_chat))
         .route("/api/llm/models", post(llm::llm_models))
@@ -177,39 +187,6 @@ async fn get_leaderboard() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!(lb.entries))
 }
 
-async fn upload_screenshot(
-    Json(body): Json<serde_json::Value>,
-) -> axum::Json<serde_json::Value> {
-    let score = body.get("score").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let gen = body.get("gen").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let data_url = body.get("image").and_then(|v| v.as_str()).unwrap_or("");
-
-    // Parse base64 data URL: "data:image/png;base64,..."
-    let png_data = if let Some(b64) = data_url.strip_prefix("data:image/png;base64,") {
-        use base64::Engine;
-        base64::engine::general_purpose::STANDARD.decode(b64).ok()
-    } else {
-        None
-    };
-
-    if let Some(data) = png_data {
-        if let Some(filename) = leaderboard::save_screenshot(score, gen, &data) {
-            // Update leaderboard entry with screenshot filename
-            let mut lb = leaderboard::Leaderboard::load();
-            for entry in &mut lb.entries {
-                if entry.score == score && entry.gen == gen && entry.screenshot.is_none() {
-                    entry.screenshot = Some(filename.clone());
-                    break;
-                }
-            }
-            lb.save();
-            return axum::Json(serde_json::json!({"ok": true, "filename": filename}));
-        }
-    }
-
-    axum::Json(serde_json::json!({"ok": false, "error": "failed to save screenshot"}))
-}
-
 async fn serve_screenshot(
     axum::extract::Path(filename): axum::extract::Path<String>,
 ) -> impl IntoResponse {
@@ -249,9 +226,24 @@ async fn handle_socket(
     let mut state_rx = state_tx.subscribe();
 
     let send_task = tokio::spawn(async move {
-        while let Ok(msg) = state_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            tokio::select! {
+                msg = state_rx.recv() => {
+                    match msg {
+                        Ok(msg) => {
+                            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if ws_tx.send(Message::Ping(vec![].into())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
@@ -396,6 +388,28 @@ async fn sim_loop(
                                     screenshot: None,
                                 };
                                 lb.add_entry(entry);
+
+                                // Render server-side screenshot
+                                let ss_data = screenshot::ScreenshotData {
+                                    body: champ.body.clone(),
+                                    food: (champ.food_x, champ.food_y),
+                                    obstacles: pop.stage.obstacle_list(),
+                                    score: gen_best,
+                                    gen: pop.gen,
+                                    snake_id: champ_idx,
+                                    stage_kind: pop.stage.kind,
+                                };
+                                if let Some(png) = screenshot::render_screenshot(&ss_data) {
+                                    if let Some(filename) = leaderboard::save_screenshot(gen_best, pop.gen, &png) {
+                                        for e in lb.entries.iter_mut() {
+                                            if e.score == gen_best && e.screenshot.is_none() {
+                                                e.screenshot = Some(filename.clone());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
                                 lb.save();
 
                                 // Broadcast to browser
@@ -551,6 +565,28 @@ async fn sim_loop(
                                 screenshot: None,
                             };
                             lb.add_entry(entry);
+
+                            // Render server-side screenshot
+                            let ss_data = screenshot::ScreenshotData {
+                                body: champ.body.clone(),
+                                food: (champ.food_x, champ.food_y),
+                                obstacles: pop.stage.obstacle_list(),
+                                score: current_max,
+                                gen: pop.gen,
+                                snake_id: champ_idx,
+                                stage_kind: pop.stage.kind,
+                            };
+                            if let Some(png) = screenshot::render_screenshot(&ss_data) {
+                                if let Some(filename) = leaderboard::save_screenshot(current_max, pop.gen, &png) {
+                                    for e in lb.entries.iter_mut() {
+                                        if e.score == current_max && e.screenshot.is_none() {
+                                            e.screenshot = Some(filename.clone());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
                             lb.save();
 
                             // Push score and save checkpoint immediately
