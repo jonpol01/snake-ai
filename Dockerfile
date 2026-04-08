@@ -1,4 +1,4 @@
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
@@ -7,12 +7,7 @@ COPY static/ static/
 
 RUN cargo build --release
 
-FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libvulkan1 \
-    mesa-vulkan-drivers \
-    && rm -rf /var/lib/apt/lists/*
+FROM gcr.io/distroless/cc-debian12
 
 WORKDIR /app
 COPY --from=builder /app/target/release/snake-ai .
