@@ -1,7 +1,20 @@
 name: Release
 
+# Triggers on:
+# 1. Push to main → auto-versions using Conventional Commits, then builds
+# 2. Manual tag push (v*) → builds directly
+#
+# Conventional Commits (while pre-1.0):
+#   feat:           → MINOR (0.x.0)
+#   feat!: / BREAKING CHANGE → MINOR (0.x.0)
+#   fix:            → PATCH (0.0.x)
+#   perf:/refactor: → PATCH (0.0.x)
+#   docs:/ci:/chore:/test:/style:/build: → PATCH (0.0.x)
+
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -9,8 +22,114 @@ permissions:
   contents: write
 
 jobs:
-  # ── Headless server binaries (no GUI, for Docker/server use) ──
+  # ── Auto-version (only on main push, not tag push) ──
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.newver.outputs.version }}
+      should_release: ${{ steps.bump.outputs.bump != 'none' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: latest
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Latest tag: $TAG"
+
+      - name: Analyze commits (Conventional Commits)
+        id: bump
+        run: |
+          LATEST="${{ steps.latest.outputs.tag }}"
+
+          if [ "$LATEST" = "v0.0.0" ]; then
+            COMMITS=$(git log --pretty=format:"%s" HEAD)
+            BODIES=$(git log --pretty=format:"%b" HEAD)
+          else
+            COMMITS=$(git log --pretty=format:"%s" ${LATEST}..HEAD)
+            BODIES=$(git log --pretty=format:"%b" ${LATEST}..HEAD)
+          fi
+
+          if [ -z "$COMMITS" ]; then
+            echo "bump=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "=== Commits since $LATEST ==="
+          echo "$COMMITS"
+
+          HAS_FEAT=false
+          HAS_FIX=false
+          HAS_BREAKING=false
+          HAS_OTHER=false
+
+          while IFS= read -r line; do
+            if echo "$line" | grep -qE "^[a-z]+(\(.+\))?!:"; then
+              HAS_BREAKING=true
+            fi
+            if echo "$line" | grep -qiE "^feat(\(.+\))?[!]?:"; then
+              HAS_FEAT=true
+            elif echo "$line" | grep -qiE "^fix(\(.+\))?[!]?:"; then
+              HAS_FIX=true
+            elif echo "$line" | grep -qiE "^(perf|refactor)(\(.+\))?[!]?:"; then
+              HAS_OTHER=true
+            fi
+          done <<< "$COMMITS"
+
+          if echo "$BODIES" | grep -q "BREAKING CHANGE"; then
+            HAS_BREAKING=true
+          fi
+
+          if [ "$HAS_BREAKING" = true ] || [ "$HAS_FEAT" = true ]; then
+            echo "bump=minor" >> $GITHUB_OUTPUT
+          elif [ "$HAS_FIX" = true ] || [ "$HAS_OTHER" = true ]; then
+            echo "bump=patch" >> $GITHUB_OUTPUT
+          else
+            echo "bump=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate new version
+        id: newver
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          LATEST="${{ steps.latest.outputs.tag }}"
+          BUMP="${{ steps.bump.outputs.bump }}"
+          VER="${LATEST#v}"
+          MAJOR=$(echo $VER | cut -d. -f1)
+          MINOR=$(echo $VER | cut -d. -f2)
+          PATCH=$(echo $VER | cut -d. -f3)
+
+          if [ "$BUMP" = "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEW="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW" >> $GITHUB_OUTPUT
+          echo "::notice::Version bump: $LATEST → $NEW ($BUMP)"
+
+      - name: Create tag
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          NEW="${{ steps.newver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW" -m "Release $NEW"
+          git push origin "$NEW"
+
+  # ── Headless server binaries ──
   build-headless:
+    needs: version
+    if: |
+      always() &&
+      (needs.version.result == 'success' && needs.version.outputs.should_release == 'true') ||
+      (needs.version.result == 'skipped' && startsWith(github.ref, 'refs/tags/v'))
     strategy:
       matrix:
         include:
@@ -67,8 +186,13 @@ jobs:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}.*
 
-  # ── Tauri desktop app bundles (.app, .msi, .AppImage) ──
+  # ── Tauri desktop app bundles ──
   build-desktop:
+    needs: version
+    if: |
+      always() &&
+      (needs.version.result == 'success' && needs.version.outputs.should_release == 'true') ||
+      (needs.version.result == 'skipped' && startsWith(github.ref, 'refs/tags/v'))
     strategy:
       matrix:
         include:
@@ -136,12 +260,22 @@ jobs:
           name: ${{ matrix.name }}
           path: dist/*
 
-  # ── Create GitHub release with all artifacts ──
+  # ── Create GitHub release ──
   release:
-    needs: [build-headless, build-desktop]
+    needs: [version, build-headless, build-desktop]
+    if: always() && (needs.build-headless.result == 'success' || needs.build-desktop.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ needs.version.outputs.new_tag }}" != "" ]; then
+            echo "tag=${{ needs.version.outputs.new_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -151,6 +285,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
           files: |
             artifacts/**/*.tar.gz
