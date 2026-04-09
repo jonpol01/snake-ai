@@ -1,0 +1,95 @@
+name: Auto Version & Tag
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for tag lookup
+
+      - name: Get latest tag
+        id: latest
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Latest tag: $TAG"
+
+      - name: Analyze commits since last tag
+        id: bump
+        run: |
+          LATEST="${{ steps.latest.outputs.tag }}"
+
+          # Get commit messages since last tag
+          if [ "$LATEST" = "v0.0.0" ]; then
+            COMMITS=$(git log --pretty=format:"%s" HEAD)
+          else
+            COMMITS=$(git log --pretty=format:"%s" ${LATEST}..HEAD)
+          fi
+
+          echo "Commits since $LATEST:"
+          echo "$COMMITS"
+
+          # Skip if no commits
+          if [ -z "$COMMITS" ]; then
+            echo "bump=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Determine bump type from commit messages
+          # MINOR (0.x.0): new features, breaking changes, major refactors
+          # PATCH (0.0.x): fixes, tweaks, docs, CI, small improvements
+
+          MINOR_PATTERNS="feat|add |added |new |replace|remove|delete|breaking|refactor|migrate|tauri|stage|gpu|architecture"
+
+          if echo "$COMMITS" | grep -iE "$MINOR_PATTERNS" > /dev/null 2>&1; then
+            echo "bump=minor" >> $GITHUB_OUTPUT
+            echo "Bump: MINOR"
+          else
+            echo "bump=patch" >> $GITHUB_OUTPUT
+            echo "Bump: PATCH"
+          fi
+
+      - name: Calculate new version
+        id: newver
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          LATEST="${{ steps.latest.outputs.tag }}"
+          BUMP="${{ steps.bump.outputs.bump }}"
+
+          # Strip v prefix
+          VER="${LATEST#v}"
+
+          # Split into parts
+          MAJOR=$(echo $VER | cut -d. -f1)
+          MINOR=$(echo $VER | cut -d. -f2)
+          PATCH=$(echo $VER | cut -d. -f3)
+
+          if [ "$BUMP" = "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEW="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW" >> $GITHUB_OUTPUT
+          echo "New version: $NEW"
+
+      - name: Create tag and push
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          NEW="${{ steps.newver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW" -m "Release $NEW"
+          git push origin "$NEW"
+          echo "Tagged and pushed $NEW — release workflow will now build binaries"
