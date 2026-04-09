@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default capability for Snake AI",
+  "windows": ["main"],
+  "permissions": [],
+  "remote": {
+    "urls": ["http://localhost:3030/*"]
+  }
+}
