@@ -1,0 +1,12 @@
+[package]
+name = "snake-ai-desktop"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+snake-ai = { path = ".." }
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
