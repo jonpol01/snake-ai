@@ -1,5 +1,31 @@
 name: Auto Version & Tag
 
+# Triggers when PRs are merged to main (push event)
+# Reads Conventional Commits to decide version bump:
+#
+#   MINOR (0.x.0):
+#     feat:          — new feature
+#     feat!:         — breaking new feature
+#     any BREAKING CHANGE in commit body
+#
+#   PATCH (0.0.x):
+#     fix:           — bug fix
+#     perf:          — performance improvement
+#     refactor:      — code refactor (no new feature)
+#     docs:          — documentation
+#     style:         — formatting, whitespace
+#     test:          — adding/updating tests
+#     ci:            — CI/CD changes
+#     chore:         — maintenance, deps
+#     build:         — build system changes
+#
+#   NO BUMP (skip release):
+#     Commits with no conventional prefix, or only ci:/docs:/chore:
+#     with no feat:/fix: present → skipped unless --force-bump
+#
+# While pre-1.0 (0.x.x), BREAKING CHANGE bumps MINOR, not MAJOR.
+# Once you're ready for 1.0, change the logic to bump MAJOR on breaking.
+
 on:
   push:
     branches:
@@ -11,10 +37,12 @@ permissions:
 jobs:
   version:
     runs-on: ubuntu-latest
+    # Skip if the push is just a tag (avoid infinite loop)
+    if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for tag lookup
+          fetch-depth: 0
 
       - name: Get latest tag
         id: latest
@@ -23,39 +51,74 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Latest tag: $TAG"
 
-      - name: Analyze commits since last tag
+      - name: Analyze commits (Conventional Commits)
         id: bump
         run: |
           LATEST="${{ steps.latest.outputs.tag }}"
 
-          # Get commit messages since last tag
+          # Get commit subjects since last tag
           if [ "$LATEST" = "v0.0.0" ]; then
             COMMITS=$(git log --pretty=format:"%s" HEAD)
+            BODIES=$(git log --pretty=format:"%b" HEAD)
           else
             COMMITS=$(git log --pretty=format:"%s" ${LATEST}..HEAD)
+            BODIES=$(git log --pretty=format:"%b" ${LATEST}..HEAD)
           fi
 
-          echo "Commits since $LATEST:"
-          echo "$COMMITS"
-
-          # Skip if no commits
           if [ -z "$COMMITS" ]; then
             echo "bump=none" >> $GITHUB_OUTPUT
+            echo "No new commits since $LATEST"
             exit 0
           fi
 
-          # Determine bump type from commit messages
-          # MINOR (0.x.0): new features, breaking changes, major refactors
-          # PATCH (0.0.x): fixes, tweaks, docs, CI, small improvements
+          echo "=== Commits since $LATEST ==="
+          echo "$COMMITS"
+          echo ""
 
-          MINOR_PATTERNS="feat|add |added |new |replace|remove|delete|breaking|refactor|migrate|tauri|stage|gpu|architecture"
+          HAS_FEAT=false
+          HAS_FIX=false
+          HAS_BREAKING=false
+          HAS_OTHER=false
 
-          if echo "$COMMITS" | grep -iE "$MINOR_PATTERNS" > /dev/null 2>&1; then
+          while IFS= read -r line; do
+            # Check for breaking change indicator (! before colon)
+            if echo "$line" | grep -qE "^[a-z]+(\(.+\))?!:"; then
+              HAS_BREAKING=true
+              echo "  BREAKING: $line"
+            fi
+
+            # Check conventional commit types
+            if echo "$line" | grep -qiE "^feat(\(.+\))?[!]?:"; then
+              HAS_FEAT=true
+              echo "  FEAT: $line"
+            elif echo "$line" | grep -qiE "^fix(\(.+\))?[!]?:"; then
+              HAS_FIX=true
+              echo "  FIX: $line"
+            elif echo "$line" | grep -qiE "^(perf|refactor)(\(.+\))?[!]?:"; then
+              HAS_OTHER=true
+              echo "  PATCH: $line"
+            elif echo "$line" | grep -qiE "^(docs|style|test|ci|chore|build)(\(.+\))?:"; then
+              echo "  CI/DOCS: $line"
+            fi
+          done <<< "$COMMITS"
+
+          # Check commit bodies for BREAKING CHANGE footer
+          if echo "$BODIES" | grep -q "BREAKING CHANGE"; then
+            HAS_BREAKING=true
+            echo "  BREAKING CHANGE found in commit body"
+          fi
+
+          # Determine bump (pre-1.0: breaking = minor, not major)
+          if [ "$HAS_BREAKING" = true ] || [ "$HAS_FEAT" = true ]; then
             echo "bump=minor" >> $GITHUB_OUTPUT
-            echo "Bump: MINOR"
-          else
+            echo "Result: MINOR bump"
+          elif [ "$HAS_FIX" = true ] || [ "$HAS_OTHER" = true ]; then
             echo "bump=patch" >> $GITHUB_OUTPUT
-            echo "Bump: PATCH"
+            echo "Result: PATCH bump"
+          else
+            # Only docs/ci/chore commits — still do a patch release
+            echo "bump=patch" >> $GITHUB_OUTPUT
+            echo "Result: PATCH bump (non-feature changes)"
           fi
 
       - name: Calculate new version
@@ -65,10 +128,7 @@ jobs:
           LATEST="${{ steps.latest.outputs.tag }}"
           BUMP="${{ steps.bump.outputs.bump }}"
 
-          # Strip v prefix
           VER="${LATEST#v}"
-
-          # Split into parts
           MAJOR=$(echo $VER | cut -d. -f1)
           MINOR=$(echo $VER | cut -d. -f2)
           PATCH=$(echo $VER | cut -d. -f3)
@@ -82,7 +142,7 @@ jobs:
 
           NEW="v${MAJOR}.${MINOR}.${PATCH}"
           echo "version=$NEW" >> $GITHUB_OUTPUT
-          echo "New version: $NEW"
+          echo "New version: $NEW (was $LATEST, bump=$BUMP)"
 
       - name: Create tag and push
         if: steps.bump.outputs.bump != 'none'
@@ -92,4 +152,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$NEW" -m "Release $NEW"
           git push origin "$NEW"
-          echo "Tagged and pushed $NEW — release workflow will now build binaries"
+          echo "::notice::Tagged $NEW — release workflow will build and publish binaries"
