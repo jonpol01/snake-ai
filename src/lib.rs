@@ -107,7 +107,8 @@ pub async fn run_backend(
         .route("/api/import-checkpoint", post(import_checkpoint))
         .route("/", get(serve_index));
 
-    let addr = "0.0.0.0:3030";
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3030".into());
+    let addr = format!("0.0.0.0:{}", port);
     shared.push_log(format!("Server listening on http://{}", addr), LogKind::Info);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();

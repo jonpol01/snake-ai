@@ -23,5 +23,6 @@ FROM gcr.io/distroless/cc-debian12
 WORKDIR /app
 COPY --from=builder /app/target/release/snake-ai .
 
-EXPOSE 3030
+ENV PORT=8080
+EXPOSE 8080
 CMD ["./snake-ai"]
