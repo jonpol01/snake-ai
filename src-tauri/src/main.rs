@@ -31,7 +31,8 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             use tauri::WebviewUrl;
-            let url = WebviewUrl::External("http://localhost:3030".parse().unwrap());
+            let port = std::env::var("PORT").unwrap_or_else(|_| "3030".into());
+            let url = WebviewUrl::External(format!("http://localhost:{}", port).parse().unwrap());
             tauri::WebviewWindowBuilder::new(app, "main", url)
                 .title("Snake AI")
                 .inner_size(1200.0, 800.0)
