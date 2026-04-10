@@ -1,30 +1,51 @@
 # Snake AI
 
-[![Rust](https://img.shields.io/badge/Rust-1.85+-orange?logo=rust)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.88+-orange?logo=rust)](https://www.rust-lang.org/)
 [![Metal](https://img.shields.io/badge/GPU-Metal%20%2F%20wgpu-blue?logo=apple)](https://wgpu.rs/)
+[![Tauri](https://img.shields.io/badge/Desktop-Tauri%202.x-yellow?logo=tauri)](https://v2.tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20Docker-lightgrey)]()
 
 A neuroevolutionary system that trains neural networks to play Snake using a genetic algorithm, with GPU-accelerated inference via **wgpu** compute shaders.
 
-The Rust backend runs the simulation and serves a browser-based dashboard over WebSocket. A native **egui** GUI provides a control panel with live logs. The frontend is embedded in the binary -- no external files needed.
+The Rust backend runs the simulation and serves a browser-based dashboard over WebSocket. A native **Tauri** desktop app wraps the dashboard in a proper macOS/Windows/Linux window. The frontend is embedded in the binary -- no external files needed.
 
 ## Architecture
 
-<p align="center">
-  <img src="docs/architecture.svg" alt="System Architecture" width="900">
-</p>
+```
+Tauri native window (macOS .app / Windows .msi / Linux .AppImage)
+  +-- WebKit/WebView2 loads http://localhost:3030
+        |  WebSocket
+Background thread (tokio)
+  +-- axum HTTP server (port 3030)
+  +-- Simulation loop (2000 snakes per generation)
+  +-- wgpu Metal compute shader (parallel NN forward passes)
+```
 
 ## Features
 
+- **Tauri desktop app** -- native window on macOS (.app/.dmg), Windows (.msi/.exe), Linux (.AppImage/.deb)
 - **GPU compute** -- all 2000 neural network forward passes run in parallel via wgpu (Metal on Mac, Vulkan on Linux)
 - **CPU fallback** -- automatically detects when GPU is unavailable (Docker, Windows, etc.)
 - **Stages** -- Classic (empty grid), Warehouse (obstacle racks with AMR robot visuals), Mixed (randomized per generation)
 - **Browser dashboard** -- real-time game view, neural network visualization, fitness graph, hardware monitor, and color-coded log panel
-- **Native GUI** -- egui control panel with stats, stage selector, and log terminal
-- **Auto-checkpoint** -- saves progress every 10 generations to `checkpoint.json`, resumes on restart
-- **Embedded frontend** -- `index.html` baked into the binary, works when double-clicking from anywhere
-- **Technical writeup** -- `neuroevolution-snake.pdf` with full algorithm description and findings
+- **Checkpoint export/import** -- share your trained brains with others or load someone else's checkpoint
+- **Auto-checkpoint** -- saves progress every 10 generations, resumes on restart
+- **Proper data directory** -- persistent files stored in platform-standard locations (not random CWD)
+- **Headless mode** -- runs as a server for Docker or remote access, no GUI needed
+- **Auto-versioning CI** -- pushes to main auto-bump version (Conventional Commits), build and release binaries for all platforms
+
+## Data Storage
+
+Persistent files (checkpoint, leaderboard, screenshots) are stored in platform-standard locations:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Application Support/com.snake-ai.app/` |
+| Linux | `~/.local/share/snake-ai/` |
+| Windows | `%APPDATA%/snake-ai/` |
+| Dev mode | Project root (if `Cargo.toml` exists in CWD) |
+| Override | Set `SNAKE_AI_DATA_DIR=/path` env var |
 
 ## Stages
 
@@ -51,107 +72,93 @@ Switching stages preserves trained brains -- no progress is lost.
 
 ## Quick Start
 
-### One-liner (auto-detects Rust or Docker)
+### Download (easiest)
+
+Grab the latest release for your platform from the [Releases page](https://github.com/jonpol01/snake-ai/releases):
+
+- **macOS**: `Snake AI_x.x.x_aarch64.dmg` (Apple Silicon) or `x86_64.dmg` (Intel)
+- **Windows**: `.msi` installer or `-setup.exe`
+- **Linux**: `.AppImage` or `.deb`
+
+### Build from source
 
 ```bash
+# Desktop app (native window)
 git clone https://github.com/jonpol01/snake-ai.git
 cd snake-ai
-./run.sh
+cargo install tauri-cli --version "^2"
+cargo tauri build
+
+# The .app / .dmg is at:
+# target/release/bundle/macos/Snake AI.app
+# target/release/bundle/dmg/Snake AI_*.dmg
 ```
 
-The script will:
-1. Use the pre-built binary if it exists
-2. Otherwise build from source if Rust is installed
-3. Otherwise use Docker if available
-4. Tell you what to install if neither is found
-
-Then open **http://localhost:3030** in your browser and click **Start**.
-
-### Native (macOS / Linux)
+### Headless (server / Docker)
 
 ```bash
-# Clone and build
-git clone https://github.com/jonpol01/snake-ai.git
-cd snake-ai
-cargo build --release
+# Native
+cargo run --release -p snake-ai
+# Then open http://localhost:3030
 
-# Run (opens native GUI + starts web server)
-cargo run --release
-
-# Open browser dashboard
-open http://localhost:3030
-```
-
-Click **Start** from either the GUI or the browser to begin evolution.
-
-### Docker (any platform -- Windows, Linux, macOS)
-
-No Rust toolchain needed. GPU is not available inside Docker, so it uses the CPU fallback (still fast, just ~2-5x slower than GPU).
-
-```bash
-# Clone
-git clone https://github.com/jonpol01/snake-ai.git
-cd snake-ai
-
-# Build and run
+# Docker
 docker compose up --build
-
-# Open browser dashboard
-# http://localhost:3030
+# Then open http://localhost:3030
 ```
 
-Or build manually:
+## Checkpoint Sharing
 
-```bash
-docker build -t snake-ai .
-docker run -p 3030:3030 snake-ai
-```
+Share your trained neural networks with others:
 
-The native egui GUI won't display inside Docker -- use the browser dashboard at `http://localhost:3030` for full control (start, pause, speed, stage selection).
-
-> **Windows users**: This is the easiest way to run it. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), clone the repo, and `docker compose up --build`. No Rust, no GPU drivers, just a browser.
+- **Export**: Click the blue EXPORT button in the control panel (or `GET /api/export-checkpoint`)
+- **Import**: Click the purple IMPORT button and select a `.json` file (or `POST /api/import-checkpoint`)
+- After importing, click START to load the checkpoint
 
 ## Requirements
 
-### Native
-- Rust 1.85+
-- macOS with Apple Silicon (Metal) or Linux with Vulkan-capable GPU
-- A modern browser (Chrome, Safari, Firefox, Edge)
+### Desktop app
+- macOS 11+ (Apple Silicon or Intel), Windows 10+, or Linux with WebKitGTK
+
+### Build from source
+- Rust 1.88+
+- Tauri CLI v2 (`cargo install tauri-cli --version "^2"`)
+- macOS: Xcode CLT, Linux: `libwebkit2gtk-4.1-dev libgtk-3-dev`
 
 ### Docker
 - Docker and Docker Compose
-- Any OS (Windows, macOS, Linux)
-- A modern browser
+- Any OS
 
 ## Project Structure
 
 ```
 src/
-  main.rs          -- axum server, sim loop, WebSocket handler
-  gui.rs           -- egui native window
+  lib.rs           -- library crate: backend, sim loop, WebSocket, HTTP endpoints
+  main.rs          -- headless binary entry point (Docker/server)
   gpu.rs           -- wgpu compute shader + CPU fallback
   neural_net.rs    -- Matrix, NeuralNet (crossover, Gaussian mutation)
   snake.rs         -- Snake game logic, 8-direction vision
   population.rs    -- Genetic algorithm, checkpointing
   stage.rs         -- Stage system (Classic, Warehouse, Mixed)
+  paths.rs         -- Platform-aware data directory resolution
   protocol.rs      -- WebSocket message types
-  shared.rs        -- SharedState for GUI <-> sim communication
+  shared.rs        -- SharedState for cross-thread communication
+  leaderboard.rs   -- Persistent hall of fame
+  screenshot.rs    -- Server-side PNG rendering for records
+  llm.rs           -- AI Coach LLM proxy
+src-tauri/
+  src/main.rs      -- Tauri desktop entry point
+  tauri.conf.json  -- Tauri window/bundle configuration
 static/
   index.html       -- Browser dashboard (embedded into binary at compile time)
-docs/
-  architecture.svg -- System architecture diagram
 ```
 
-## How It Works
+## CI/CD
 
-1. **2000 snakes** spawn on the grid, each with a random neural network (740 weights)
-2. Each snake **sees** in 8 directions via raycasting (food, body/obstacles, wall distance = 24 inputs)
-3. The GPU runs all 2000 forward passes **in parallel** via a wgpu compute shader
-4. Each snake picks a direction (up/down/left/right) based on its network output
-5. When all snakes die, **fitness** is calculated: `lifetime * 2^score`
-6. **Natural selection**: parents chosen by roulette wheel, offspring via crossover + Gaussian mutation
-7. The **best brain** is preserved (elitism) -- it never gets worse
-8. Repeat. Scores typically reach 50+ within 500 generations
+Pushes to `main` automatically:
+1. Analyze commits using Conventional Commits (`feat:` = minor, `fix:` = patch)
+2. Bump version and create a git tag
+3. Build headless binaries + Tauri desktop bundles for all platforms
+4. Publish a GitHub Release with all artifacts
 
 ## License
 
