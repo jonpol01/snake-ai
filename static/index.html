@@ -689,20 +689,29 @@ function exportCheckpoint() {
 function importCheckpoint(input) {
   const file = input.files[0];
   if (!file) return;
+  // Pause sim first so it doesn't overwrite the import
+  send({type:'pause'});
   const reader = new FileReader();
   reader.onload = () => {
-    fetch('/api/import-checkpoint', { method: 'POST', body: reader.result })
+    fetch('/api/import-checkpoint', { method: 'POST', body: reader.result,
+      headers: {'Content-Type': 'application/json'} })
       .then(r => r.json())
       .then(res => {
         if (res.ok) {
-          addLog(new Date().toLocaleTimeString(), 'Checkpoint imported! Click START to load it.', 'done');
+          addLog(new Date().toLocaleTimeString(),
+            'Checkpoint imported (gen ' + (res.gen || '?') + ', best ' + (res.best || '?') + '). Click START to load it.', 'done');
+          // Reset UI to show START button
+          document.getElementById('btn-pause').style.display = 'none';
+          document.getElementById('btn-resume').style.display = 'none';
+          document.getElementById('btn-start').style.display = '';
+          running = false;
         } else {
           addLog(new Date().toLocaleTimeString(), 'Import failed: ' + (res.error || 'unknown'), 'error');
         }
       })
       .catch(() => addLog(new Date().toLocaleTimeString(), 'Import failed: network error', 'error'));
   };
-  reader.readAsArrayBuffer(file);
+  reader.readAsText(file);
   input.value = '';
 }
 
