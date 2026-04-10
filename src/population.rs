@@ -177,6 +177,9 @@ impl Population {
                     }
                 }
             }
+            // Keep a rolling backup
+            let backup = paths::data_path("checkpoint.backup.json");
+            let _ = std::fs::copy(&cp_path, &backup);
         }
 
         let checkpoint = Checkpoint {
