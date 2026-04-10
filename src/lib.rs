@@ -2,6 +2,7 @@ pub mod gpu;
 pub mod leaderboard;
 pub mod llm;
 pub mod neural_net;
+pub mod paths;
 pub mod population;
 pub mod protocol;
 pub mod screenshot;
@@ -102,6 +103,8 @@ pub async fn run_backend(
         .route("/screenshots/{filename}", get(serve_screenshot))
         .route("/api/llm/chat", post(llm::llm_chat))
         .route("/api/llm/models", post(llm::llm_models))
+        .route("/api/export-checkpoint", get(export_checkpoint))
+        .route("/api/import-checkpoint", post(import_checkpoint))
         .route("/", get(serve_index));
 
     let addr = "0.0.0.0:3030";
@@ -170,6 +173,40 @@ async fn serve_screenshot(
 
 async fn serve_index() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
+}
+
+/// Download the current checkpoint file
+async fn export_checkpoint() -> impl IntoResponse {
+    let cp_path = paths::data_path("checkpoint.json");
+    if let Ok(data) = std::fs::read(&cp_path) {
+        axum::response::Response::builder()
+            .header("Content-Type", "application/json")
+            .header("Content-Disposition", "attachment; filename=\"checkpoint.json\"")
+            .body(axum::body::Body::from(data))
+            .unwrap()
+    } else {
+        axum::response::Response::builder()
+            .status(404)
+            .body(axum::body::Body::from("no checkpoint found"))
+            .unwrap()
+    }
+}
+
+/// Import a checkpoint file (upload via POST body)
+async fn import_checkpoint(body: axum::body::Bytes) -> axum::Json<serde_json::Value> {
+    // Validate it's a valid checkpoint
+    if serde_json::from_slice::<serde_json::Value>(&body).is_err() {
+        return axum::Json(serde_json::json!({"error": "invalid JSON"}));
+    }
+
+    let cp_path = paths::data_path("checkpoint.json");
+    match std::fs::write(&cp_path, &body) {
+        Ok(_) => axum::Json(serde_json::json!({
+            "ok": true,
+            "message": "Checkpoint imported. Click Start to load it."
+        })),
+        Err(e) => axum::Json(serde_json::json!({"error": e.to_string()})),
+    }
 }
 
 async fn ws_handler(
