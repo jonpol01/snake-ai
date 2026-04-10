@@ -3,11 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::neural_net::NeuralNet;
+use crate::paths;
 use crate::snake::Snake;
 use crate::stage::{Stage, StageKind};
 
 pub const POP_SIZE: usize = 2000;
-const CHECKPOINT_PATH: &str = "checkpoint.json";
+const CHECKPOINT_FILE: &str = "checkpoint.json";
 
 /// Bump this when the Checkpoint struct or neural net architecture changes.
 /// Old checkpoints (version 0 or missing) are treated as compatible with v1.
@@ -160,9 +161,10 @@ impl Population {
     /// Save checkpoint to disk.
     /// Safety: never overwrites a higher-generation checkpoint with a lower one.
     pub fn save_checkpoint(&self) {
+        let cp_path = paths::data_path(CHECKPOINT_FILE);
         // Guard: don't overwrite a better checkpoint with a fresh/early one
-        if Path::new(CHECKPOINT_PATH).exists() {
-            if let Ok(data) = std::fs::read_to_string(CHECKPOINT_PATH) {
+        if cp_path.exists() {
+            if let Ok(data) = std::fs::read_to_string(&cp_path) {
                 if let Ok(existing) = serde_json::from_str::<Checkpoint>(&data) {
                     let existing_best = existing.best_scores.iter().copied().max().unwrap_or(0);
                     let our_best = self.best_scores.iter().copied().max().unwrap_or(0);
@@ -187,16 +189,21 @@ impl Population {
             stage_kind: self.stage.kind,
         };
         if let Ok(json) = serde_json::to_string(&checkpoint) {
-            let _ = std::fs::write(CHECKPOINT_PATH, json);
+            let _ = std::fs::write(&cp_path, json);
         }
     }
 
     /// Load from checkpoint if it exists, otherwise create new
     pub fn from_checkpoint(stage_kind: StageKind) -> Option<Self> {
-        if !Path::new(CHECKPOINT_PATH).exists() {
+        Self::load_checkpoint_from(&paths::data_path(CHECKPOINT_FILE), stage_kind)
+    }
+
+    /// Load a checkpoint from a specific file path (for importing someone else's checkpoint)
+    pub fn load_checkpoint_from(path: &Path, stage_kind: StageKind) -> Option<Self> {
+        if !path.exists() {
             return None;
         }
-        let data = std::fs::read_to_string(CHECKPOINT_PATH).ok()?;
+        let data = std::fs::read_to_string(path).ok()?;
         let cp: Checkpoint = serde_json::from_str(&data).ok()?;
 
         // Version compatibility check

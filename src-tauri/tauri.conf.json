@@ -1,7 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "Snake AI",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.snake-ai.app",
   "build": {
     "frontendDist": "../static"
