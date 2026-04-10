@@ -439,6 +439,11 @@
     </select>
     <button id="btn-regen" onclick="send({type:'regenerate'})" style="border-color:#f80;color:#f80;margin-top:4px">SHUFFLE LAYOUT</button>
     <hr>
+    <div class="label" style="margin-top:3px">CHECKPOINT</div>
+    <button onclick="exportCheckpoint()" style="border-color:#38bdf8;color:#38bdf8">EXPORT</button>
+    <button onclick="document.getElementById('import-file').click()" style="border-color:#a78bfa;color:#a78bfa">IMPORT</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importCheckpoint(this)">
+    <hr>
     <div class="label" style="margin-top:3px">BEST SCORE / GEN</div>
     <canvas id="graph" width="168" height="70"></canvas>
   </div>
@@ -676,6 +681,29 @@ function doResume() {
   running = true;
   document.getElementById('btn-resume').style.display = 'none';
   document.getElementById('btn-pause').style.display = '';
+}
+
+function exportCheckpoint() {
+  window.location.href = '/api/export-checkpoint';
+}
+function importCheckpoint(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    fetch('/api/import-checkpoint', { method: 'POST', body: reader.result })
+      .then(r => r.json())
+      .then(res => {
+        if (res.ok) {
+          addLog(new Date().toLocaleTimeString(), 'Checkpoint imported! Click START to load it.', 'done');
+        } else {
+          addLog(new Date().toLocaleTimeString(), 'Import failed: ' + (res.error || 'unknown'), 'error');
+        }
+      })
+      .catch(() => addLog(new Date().toLocaleTimeString(), 'Import failed: network error', 'error'));
+  };
+  reader.readAsArrayBuffer(file);
+  input.value = '';
 }
 
 const speedEl = document.getElementById('speed');
