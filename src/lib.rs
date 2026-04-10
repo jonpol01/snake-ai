@@ -194,16 +194,35 @@ async fn export_checkpoint() -> impl IntoResponse {
 
 /// Import a checkpoint file (upload via POST body)
 async fn import_checkpoint(body: axum::body::Bytes) -> axum::Json<serde_json::Value> {
-    // Validate it's a valid checkpoint
-    if serde_json::from_slice::<serde_json::Value>(&body).is_err() {
-        return axum::Json(serde_json::json!({"error": "invalid JSON"}));
+    // Validate it's a valid checkpoint with expected fields
+    let parsed: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return axum::Json(serde_json::json!({"error": "invalid JSON"})),
+    };
+
+    // Extract info for the response
+    let gen = parsed.get("gen").and_then(|v| v.as_u64()).unwrap_or(0);
+    let best = parsed.get("best_scores")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).max().unwrap_or(0))
+        .unwrap_or(0);
+    let brains = parsed.get("brains")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.len())
+        .unwrap_or(0);
+
+    if brains == 0 {
+        return axum::Json(serde_json::json!({"error": "no brains found in checkpoint"}));
     }
 
     let cp_path = paths::data_path("checkpoint.json");
     match std::fs::write(&cp_path, &body) {
         Ok(_) => axum::Json(serde_json::json!({
             "ok": true,
-            "message": "Checkpoint imported. Click Start to load it."
+            "gen": gen,
+            "best": best,
+            "brains": brains,
+            "message": format!("Imported gen {}, best score {}, {} brains", gen, best, brains)
         })),
         Err(e) => axum::Json(serde_json::json!({"error": e.to_string()})),
     }
