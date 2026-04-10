@@ -216,6 +216,13 @@ async fn import_checkpoint(body: axum::body::Bytes) -> axum::Json<serde_json::Va
     }
 
     let cp_path = paths::data_path("checkpoint.json");
+
+    // Back up existing checkpoint before overwriting
+    if cp_path.exists() {
+        let backup = paths::data_path("checkpoint.backup.json");
+        let _ = std::fs::copy(&cp_path, &backup);
+    }
+
     match std::fs::write(&cp_path, &body) {
         Ok(_) => axum::Json(serde_json::json!({
             "ok": true,
